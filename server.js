@@ -3,7 +3,12 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 const path = require('path');
 
 app.use(express.static(__dirname));
@@ -17,19 +22,15 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Nuova connessione: ' + socket.id);
 
-    // Limit to 2 players
-    if (Object.keys(players).length >= 2) {
-        socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
-        return;
-    }
-
+    // Gestione ingresso gioco
     socket.on('joinGame', (userData) => {
-        if (Object.keys(players).length >= 2 && !players[socket.id]) { // Double check
+        // Se ci sono già 2 giocatori e questo socket non è uno di loro
+        if (Object.keys(players).length >= 2 && !players[socket.id]) {
             socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
             return;
         }
 
-        console.log(`Giocatore ${userData.username} entrato.`);
+        console.log(`Giocatore ${userData.username} (ID: ${socket.id}) entrato.`);
 
         players[socket.id] = {
             id: socket.id,
@@ -39,17 +40,24 @@ io.on('connection', (socket) => {
             position: { x: 0, y: 6, z: 0 },
             rotation: { x: 0, y: 0, z: 0 },
             animState: 'idle',
-            weaponMode: 'ranged'
+            weaponMode: 'ranged',
+            isDead: false
         };
 
-        // Send current players to the new joiner
+        // Invia al nuovo giocatore la lista di chi c'è già
         socket.emit('currentPlayers', players);
 
-        // Broadcast new player to others
+        // Avvisa gli altri che è arrivato un nuovo giocatore
         socket.broadcast.emit('newPlayer', players[socket.id]);
     });
     
-    // NEW: Handle name updates
+    // RICHIESTA POSIZIONE: Risolve il bug per cui chi entra dopo non vede chi era fermo
+    socket.on('requestPosition', () => {
+        // Chiedo a tutti gli altri di inviare la loro posizione attuale
+        socket.broadcast.emit('forcePositionUpdate');
+    });
+
+    // Aggiornamento Nome
     socket.on('updateUsername', (username) => {
         if(players[socket.id]) {
             players[socket.id].username = username;
@@ -57,6 +65,7 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Movimento
     socket.on('playerMovement', (data) => {
         if (players[socket.id]) {
             players[socket.id].position = data.position;
@@ -74,6 +83,7 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Attacco (Animazione)
     socket.on('playerAttack', (attackData) => {
         socket.broadcast.emit('enemyAttacked', {
             id: socket.id,
@@ -81,56 +91,72 @@ io.on('connection', (socket) => {
         });
     });
 
-    // NEW: Handle Pushed/Knockback effects (mainly used by spell 2 & 3)
+    // Gestione Sbalzamento (Knockback)
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
-            // Apply damage if provided (for fireball)
+            // Applica danno se presente
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
             
-            // Broadcast new health to ALL players
+            // Invia la spinta al client colpito
+            io.to(targetId).emit('playerPushed', {
+                force: pushData.force,
+                pushOrigin: pushData.pushOrigin
+            });
+
+            // Aggiorna la vita a tutti
             io.emit('updateHealth', { 
                 id: targetId, 
                 hp: players[targetId].hp 
             });
 
-            if (players[targetId].hp <= 0) {
+            if (players[targetId].hp <= 0 && !players[targetId].isDead) {
+                players[targetId].isDead = true;
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
             }
         }
     });
 
-    // Handle standard Damage Taken (Spell 1, 4, Melee)
+    // Danno standard
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
-        
         if (players[targetId]) {
             players[targetId].hp -= dmgData.damage;
             
-            // Broadcast NEW HEALTH to ALL players so bars update
             io.emit('updateHealth', { 
                 id: targetId, 
                 hp: players[targetId].hp 
             });
             
-            if (players[targetId].hp <= 0) {
+            if (players[targetId].hp <= 0 && !players[targetId].isDead) {
+                players[targetId].isDead = true;
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
             }
         }
     });
     
-    // NEW: Handle Healing
+    // Cura
     socket.on('playerHealed', (healData) => {
         if (players[socket.id]) {
             players[socket.id].hp = Math.min(players[socket.id].maxHp, players[socket.id].hp + healData.amount);
+            players[socket.id].isDead = false; // Resurrect logic handled by client respawn usually
             
-            // Broadcast NEW HEALTH to ALL players (crucial for opponent sync)
             io.emit('updateHealth', { 
                 id: socket.id, 
                 hp: players[socket.id].hp 
             });
+        }
+    });
+
+    // Respawn
+    socket.on('playerRespawn', () => {
+        if (players[socket.id]) {
+            players[socket.id].hp = 100;
+            players[socket.id].isDead = false;
+            io.emit('playerRespawned', { id: socket.id });
+            io.emit('updateHealth', { id: socket.id, hp: 100 });
         }
     });
 

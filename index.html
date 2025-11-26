@@ -183,7 +183,8 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        const SETTINGS = { speed: 600.0, sprintMulti: 1.6, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
+        // SLOWER SPEEDS FOR BETTER COMBAT
+        const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
         const instructionsModal = document.getElementById('instructions-modal');
         const loginModal = document.getElementById('login-modal');
@@ -242,6 +243,7 @@
                     document.getElementById('connection-status').innerText = "CONNESSO: " + myUsername;
                     myId = socket.id;
                     socket.emit('joinGame', { username: myUsername });
+                    socket.emit('requestPosition'); // FORCE SYNC
                 });
 
                 socket.on('disconnect', () => {
@@ -250,6 +252,18 @@
                 });
                 
                 socket.on('serverMsg', (msg) => { addToLog(msg, 'server-msg'); });
+                
+                socket.on('forcePositionUpdate', () => {
+                     if (myId && !playerStats.isDead) {
+                         const animState = isSprinting ? 'run' : (moveForward || moveBackward) ? 'walk' : 'idle';
+                         socket.emit('playerMovement', {
+                            position: playerMesh.position,
+                            rotation: { x: playerMesh.rotation.x, y: playerMesh.rotation.y, z: playerMesh.rotation.z },
+                            animState: animState,
+                            weaponMode: weaponMode
+                        });
+                     }
+                });
 
                 socket.on('currentPlayers', (players) => {
                     Object.keys(players).forEach((id) => {
@@ -312,19 +326,19 @@
                     }
                 });
                 
-                // NEW: Handle Physics Effects from Server
                 socket.on('playerPushed', (data) => {
-                    if (data.targetId === myId) {
-                        if (data.force) {
-                            velocity.y += data.force;
-                        } else {
-                            const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
-                            const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
-                            velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
-                        }
-                        playerStats.isFalling = true;
-                        canJump = false;
+                    if (data.force) {
+                        velocity.y += data.force; // Vertical push
+                    } else {
+                        // Horizontal push
+                        const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
+                        const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
+                        velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
                     }
+                    // Force lift off ground immediately for physics engine
+                    playerMesh.position.y += 0.5; 
+                    playerStats.isFalling = true;
+                    canJump = false;
                 });
 
                 socket.on('updateHealth', (data) => {
@@ -336,6 +350,14 @@
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp);
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false);
                     }
+                });
+                
+                socket.on('playerRespawned', (data) => {
+                     if(otherPlayers[data.id]) {
+                        otherPlayers[data.id].mesh.userData.isDead = false;
+                        otherPlayers[data.id].mesh.rotation.z = 0;
+                        updateEnemyHealthBar(otherPlayers[data.id], 100);
+                     }
                 });
 
                 socket.on('playerDied', (data) => {
@@ -349,6 +371,12 @@
                         otherPlayers[data.id].mesh.userData.isDead = true;
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill");
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true);
+                        // Remove body after 3 seconds
+                        setTimeout(() => {
+                             if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) {
+                                 removeOtherPlayer(data.id);
+                             }
+                        }, 3000);
                     }
                 });
             } else {
@@ -794,8 +822,7 @@
             const now = performance.now();
             if (now - lastConversionTime < SETTINGS.conversionCooldown) { addToLog("Ricarica...", "#aaa"); return; }
             
-            // REMOVED INSTANT BURST TO MAKE IT CONSISTENT
-            // Just start the channel
+            // No burst logic anymore
             playSound('heal'); 
             activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); 
             lastConversionTime = now; 
@@ -815,6 +842,7 @@
         function applyConversionTick(type) {
              const cost = 5; const gain = 5;
             if (type === 1) { 
+                // Stamina -> HP (FIXED: No burst logic)
                 if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { 
                     playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); 
                     spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); 
@@ -920,7 +948,6 @@
             proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
-        
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
@@ -937,16 +964,16 @@
                 
                 // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    // Simple distance check for Players instead of Raycasting
-                    // Robust solution for 1v1 web game latency
-                    // Using "Cylinder" check logic
+                    // CYLINDER HITBOX LOGIC (Much better for full body hit)
                     Object.values(otherPlayers).forEach(op => {
+                        // Distance on XZ plane (flat)
                         const dx = p.position.x - op.mesh.position.x;
                         const dz = p.position.z - op.mesh.position.z;
                         const distXZ = Math.sqrt(dx*dx + dz*dz);
+                        // Height difference
                         const dy = p.position.y - op.mesh.position.y;
 
-                        // Hitbox: Radius 5.0, Height 15.0 (from y=0 to y=15)
+                        // Hitbox: Radius 5.0, Height 15.0 (covers head to toe)
                         if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                             hit = true;
                             hitTarget = op.mesh;
@@ -970,13 +997,13 @@
                         let dmg = 0;
                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
-                        // Spell 2 (Push) deals no damage on hit.
+                        else if (p.userData.type === 2) dmg = 10; 
 
                         if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
                             // Only send hit event once
                             if (p.userData.type === 2) { 
-                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), damage: 10 }); // Spell 2 does 10 dmg
+                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), damage: dmg }); 
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Onda d'Urto!`, "spell-cast");
                             } else if (p.userData.type === 3) { 
                                 socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), force: SETTINGS.fireballUpForce, damage: dmg });
@@ -996,13 +1023,14 @@
                     const distXZ = Math.sqrt(dx*dx + dz*dz);
                     const dy = p.position.y - playerMesh.position.y;
                     
+                    // My own hitbox logic (Cylinder)
                     if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
                          playSound('hit');
                     }
                 }
 
-                // Check collision with ground (for everyone)
+                // Check collision with ground
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; 
                     hitPoint.y = 0; 
@@ -1014,7 +1042,9 @@
                         // Apply self-rocket jump
                         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
-                        velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
+                        velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); 
+                        canJump = false;
+                        playerStats.isFalling = true; // Allow fly
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
                     } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -1036,16 +1066,13 @@
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
             
-            // Notify other player of MELEE attack
             if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
             
-            // Melee Hit Check
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
                 const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
                 if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
-                    // Send PUSH event for melee knockback
                     if (socket) {
                          socket.emit('playerPushed', { targetId: id, pushOrigin: origin, damage: SETTINGS.meleeDmg });
                     }
@@ -1074,7 +1101,8 @@
             if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             let speed = SETTINGS.speed;
             
-            playerStats.isFalling = velocity.y < -10; 
+            // FIX FALLING LOGIC TO ALLOW KNOCKBACK
+            if (velocity.y < -10) playerStats.isFalling = true;
 
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
             velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
@@ -1085,7 +1113,7 @@
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
             
-            // Updated ground collision logic to allow jump from knockback
+            // FIX GROUND COLLISION: Only stop if falling down
             if(playerMesh.position.y < 6) { 
                 if (velocity.y <= 0) {
                     playerMesh.position.y = 6; 
