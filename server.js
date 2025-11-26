@@ -17,9 +17,14 @@ let players = {};
 io.on('connection', (socket) => {
     console.log('Nuova connessione: ' + socket.id);
 
+    // Limit to 2 players
+    if (Object.keys(players).length >= 2) {
+        socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
+        return;
+    }
+
     socket.on('joinGame', (userData) => {
-        // Limit to 2 players
-        if (Object.keys(players).length >= 2) {
+        if (Object.keys(players).length >= 2 && !players[socket.id]) { // Double check
             socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
             return;
         }
@@ -42,6 +47,14 @@ io.on('connection', (socket) => {
 
         // Broadcast new player to others
         socket.broadcast.emit('newPlayer', players[socket.id]);
+    });
+    
+    // NEW: Handle name updates
+    socket.on('updateUsername', (username) => {
+        if(players[socket.id]) {
+            players[socket.id].username = username;
+            io.emit('updateUsername', { id: socket.id, username: username });
+        }
     });
 
     socket.on('playerMovement', (data) => {
@@ -68,12 +81,30 @@ io.on('connection', (socket) => {
         });
     });
 
+    // NEW: Handle Pushed/Knockback effects (mainly used by spell 2 & 3)
+    socket.on('playerPushed', (pushData) => {
+        const targetId = pushData.targetId;
+        if (players[targetId]) {
+            // Apply damage if provided (for fireball)
+            if (pushData.damage) {
+                players[targetId].hp -= pushData.damage;
+            }
+            
+            // Broadcast new health to ALL players
+            io.emit('updateHealth', { 
+                id: targetId, 
+                hp: players[targetId].hp 
+            });
+
+            if (players[targetId].hp <= 0) {
+                io.emit('playerDied', { id: targetId, killerId: socket.id });
+            }
+        }
+    });
+
+    // Handle standard Damage Taken (Spell 1, 4, Melee)
     socket.on('playerHit', (dmgData) => {
-        // dmgData contains { damage: X, targetId: Y } (optional logic) OR just self damage
-        // Simple logic: The client says "I took damage" or "I hit him".
-        // Let's use: Attacker says "I hit ID X for Y damage" to prevent lag issues on victim side visually
-        
-        const targetId = dmgData.targetId || socket.id; // If targetId not provided, assume self (legacy)
+        const targetId = dmgData.targetId;
         
         if (players[targetId]) {
             players[targetId].hp -= dmgData.damage;
@@ -86,13 +117,25 @@ io.on('connection', (socket) => {
             
             if (players[targetId].hp <= 0) {
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
-                // Reset HP for next round after a delay could happen here
             }
+        }
+    });
+    
+    // NEW: Handle Healing
+    socket.on('playerHealed', (healData) => {
+        if (players[socket.id]) {
+            players[socket.id].hp = Math.min(players[socket.id].maxHp, players[socket.id].hp + healData.amount);
+            
+            // Broadcast NEW HEALTH to ALL players (crucial for opponent sync)
+            io.emit('updateHealth', { 
+                id: socket.id, 
+                hp: players[socket.id].hp 
+            });
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('Disconnesso: ' + socket.id);
+        console.log('Guerriero disconnesso: ' + socket.id);
         delete players[socket.id];
         io.emit('playerDisconnected', socket.id);
     });

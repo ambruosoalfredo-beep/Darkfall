@@ -327,7 +327,8 @@
                     if (data.id === myId) {
                         playerStats.hp = data.hp;
                         updateUI();
-                        flashScreen('red');
+                        // Non flashare lo schermo se mi curo
+                        if(data.hp < playerStats.maxHp) flashScreen('red'); 
                     } else if (otherPlayers[data.id]) {
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp);
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false);
@@ -816,9 +817,25 @@
             const now = performance.now();
             if (now - lastConversionTime < SETTINGS.conversionCooldown) { addToLog("Ricarica...", "#aaa"); return; }
             const burstGain = 15; let instantSuccess = false;
-            if (type === 1) { if (playerStats.hp < playerStats.maxHp) { playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + burstGain); spawnGlowEffect(0xff0000); flashScreen('red'); instantSuccess = true; } } 
-            else if (type === 2) { if (playerStats.mana < playerStats.maxMana) { playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + burstGain); spawnGlowEffect(0x0000ff); flashScreen('blue'); instantSuccess = true; } } 
-            else if (type === 3) { if (playerStats.stamina < playerStats.maxStamina) { playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + burstGain); spawnGlowEffect(0xffff00); flashScreen('yellow'); instantSuccess = true; } }
+            if (type === 1) { 
+                if (playerStats.hp < playerStats.maxHp) {
+                    playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + burstGain); 
+                    spawnGlowEffect(0xff0000); flashScreen('red'); instantSuccess = true; 
+                    if(socket) socket.emit('playerHealed', { amount: burstGain }); // NEW: Notify server of heal burst
+                } 
+            } 
+            else if (type === 2) { 
+                if (playerStats.mana < playerStats.maxMana) {
+                    playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + burstGain); 
+                    spawnGlowEffect(0x0000ff); flashScreen('blue'); instantSuccess = true; 
+                } 
+            } 
+            else if (type === 3) { 
+                if (playerStats.stamina < playerStats.maxStamina) {
+                    playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + burstGain); 
+                    spawnGlowEffect(0xffff00); flashScreen('yellow'); instantSuccess = true; 
+                } 
+            }
             if(!instantSuccess) { addToLog("Risorsa già al massimo!", "#555"); return; }
             playSound('heal'); activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); lastConversionTime = now; updateUI();
             const slotId = (type === 1) ? 'slot-5' : (type === 2) ? 'slot-6' : 'slot-7'; document.getElementById(slotId).classList.add('channeling'); setTimeout(() => document.getElementById(slotId).classList.remove('channeling'), 5000);
@@ -833,9 +850,25 @@
         }
         function applyConversionTick(type) {
              const cost = 5; const gain = 5;
-            if (type === 1) { if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); } } 
-            else if (type === 2) { if (playerStats.hp > cost && playerStats.mana < playerStats.maxMana) { playerStats.hp -= cost; playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + gain); spawnParticles(playerMesh.position, 0x0000ff, 5, 10, 0.2, false); } } 
-            else if (type === 3) { if (playerStats.mana >= cost && playerStats.stamina < playerStats.maxStamina) { playerStats.mana -= cost; playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + gain); spawnParticles(playerMesh.position, 0xffff00, 5, 10, 0.2, false); } }
+            if (type === 1) { 
+                if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { 
+                    playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); 
+                    spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); 
+                    if(socket) socket.emit('playerHealed', { amount: gain }); // NEW: Notify server of heal tick
+                } 
+            } 
+            else if (type === 2) { 
+                if (playerStats.hp > cost && playerStats.mana < playerStats.maxMana) { 
+                    playerStats.hp -= cost; playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + gain); 
+                    spawnParticles(playerMesh.position, 0x0000ff, 5, 10, 0.2, false); 
+                } 
+            } 
+            else if (type === 3) { 
+                if (playerStats.mana >= cost && playerStats.stamina < playerStats.maxStamina) { 
+                    playerStats.mana -= cost; playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + gain); 
+                    spawnParticles(playerMesh.position, 0xffff00, 5, 10, 0.2, false); 
+                } 
+            }
             updateUI(); 
         }
         function performHeal() {
@@ -843,7 +876,9 @@
             if (now - lastHealTime < SETTINGS.healCooldown) { addToLog("Cura in cooldown", "#aaa"); return; }
             if (playerStats.mana < SETTINGS.healCost) { addToLog("Mana insufficiente", "#555"); return; }
             if (playerStats.hp >= playerStats.maxHp) return;
-            playerStats.mana -= SETTINGS.healCost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + SETTINGS.healAmount);
+            playerStats.mana -= SETTINGS.healCost; 
+            playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + SETTINGS.healAmount);
+            if(socket) socket.emit('playerHealed', { amount: SETTINGS.healAmount }); // NEW: Notify server of instant heal
             lastHealTime = now; addToLog(`Curato di ${SETTINGS.healAmount} HP`, "heal"); createFloatingText(playerMesh.position.clone().add(new THREE.Vector3(0,5,0)), `+${SETTINGS.healAmount}`, '#00ff00');
             spawnGlowEffect(0x00ff00); flashScreen('green'); playSound('heal'); updateUI(); 
         }
@@ -937,7 +972,9 @@
                 
                 // Create a ray from current position to next position
                 const direction = p.userData.velocity.clone().normalize();
-                // We use a Raycaster to detect collision over the travel distance, including obstacle collision.
+                
+                // Create a simple raycaster starting from the current projectile position
+                // The length of the ray is slightly more than the distance moved in this frame
                 const raycaster = new THREE.Raycaster(p.position, direction, 0, move.length() + 0.1); 
                 const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
                 
@@ -947,6 +984,7 @@
                     hitPoint = intersects[0].point;
 
                     let currentObj = intersects[0].object;
+                    // Find the main player mesh object that was hit
                     while(currentObj) { 
                         const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
                         if(target) { hitTarget = target; break; }
@@ -962,9 +1000,21 @@
                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
                         // Spell 2 (Push) deals no damage on hit.
 
-                        if (dmg > 0 && socket) {
+                        if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
-                            socket.emit('playerHit', { damage: dmg, targetId: targetId });
+                            // Apply physical effects if hit target is player
+                            if (p.userData.type === 2) { // Push
+                                // Send push instruction to the server/other player to apply physics locally
+                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone() });
+                                addToLog(`Colpito ${hitTarget.username} con Onda d'Urto!`, "spell-cast");
+                            } else if (p.userData.type === 3) { // Fireball
+                                // Send Knockback instruction along with damage
+                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), force: SETTINGS.fireballUpForce, damage: dmg });
+                                addToLog(`Colpito ${hitTarget.username} con Palla di Fuoco! -${dmg} HP`, "dmg-dealt");
+                            } else if (p.userData.type === 1) { // Bolt
+                                socket.emit('playerHit', { damage: dmg, targetId: targetId });
+                                addToLog(`Colpito ${hitTarget.username} con Dardo! -${dmg} HP`, "dmg-dealt");
+                            }
                         }
                     }
                 } 
@@ -983,17 +1033,17 @@
                              // I tell server I took damage
                              socket.emit('playerHit', { damage: dmg, targetId: myId });
                              addToLog(`Colpito! -${dmg} HP`, "dmg-taken"); playSound('hit');
-                             
-                             // Apply Knockback/Physics for spells (LOCAL EFFECT)
-                             if (p.userData.type === 2) { // Push
-                                 const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
-                                 velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
-                                 playerStats.isFalling = true;
-                             } else if (p.userData.type === 3) { // Fireball Jump
-                                 velocity.y += SETTINGS.fireballUpForce; // Jump up
-                                 playerStats.isFalling = true;
-                             }
                          }
+                        
+                        // Apply Knockback/Physics for spells (LOCAL EFFECT)
+                        if (p.userData.type === 2) { // Push
+                            const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
+                            velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
+                            playerStats.isFalling = true;
+                        } else if (p.userData.type === 3) { // Fireball Jump
+                            velocity.y += SETTINGS.fireballUpForce; // Jump up
+                            playerStats.isFalling = true;
+                        }
                     }
                 }
 
