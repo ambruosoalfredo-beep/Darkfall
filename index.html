@@ -158,6 +158,16 @@
         const otherPlayers = {}; 
         let myId = null;
         let myUsername = "Player";
+        
+        // --- WORLD GENERATION SEED (FIXED for synchronization) ---
+        const WORLD_SEED = 123456;
+        let seed = WORLD_SEED;
+
+        // Custom PRNG function
+        function random() {
+            seed = (seed * 9301 + 49297) % 233280;
+            return seed / 233280;
+        }
 
         // --- GLOBAL VARS ---
         let camera, scene, renderer;
@@ -271,6 +281,7 @@
                             }, 500);
                             playSound('swing');
                         } else {
+                            // Spawna proiettile nemico. La logica di collisione contro il mio player è in updateProjectiles.
                             spawnEnemyProjectile(data.origin, data.direction, data.type);
                         }
                     }
@@ -379,7 +390,12 @@
             createPlayer(); createSword(); createStaff();
             const light = new THREE.HemisphereLight(0x777799, 0x111122, 1.0); scene.add(light);
             const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5); dirLight.position.set(100, 200, 50); dirLight.castShadow = true; scene.add(dirLight);
-            setupWorld(); setupControls(); setupUIEvents();
+            
+            // Reset seed before generating world
+            seed = WORLD_SEED; 
+            setupWorld(); 
+            
+            setupControls(); setupUIEvents();
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
@@ -417,7 +433,11 @@
             otherPlayers[info.id] = { 
                 username: info.username, 
                 mesh: mesh, 
-                limbs: { armL, armR, legL, legR, head: headGroup, torso } 
+                limbs: { armL, armR, legL, legR, head: headGroup, torso },
+                // Aggiunta stato attacco per animazione remota
+                isAttacking: false,
+                attackTimer: 0,
+                isWhirlwinding: false 
             };
         }
 
@@ -465,7 +485,6 @@
         }
         function updateOpponentWeaponVisuals(mesh, mode) {
             // Simplification: in melee mode, maybe hide staff or show sword
-            // For now, just assume staff is always there
         }
 
         // --- LOCAL PLAYER ---
@@ -513,9 +532,9 @@
             const mat = new THREE.MeshBasicMaterial({ color: color });
             for(let i=0; i<count; i++) {
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
-                mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(2));
+                mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
-                particles.push({ mesh: mesh, velocity: new THREE.Vector3(Math.random()-0.5, Math.random()*0.5+0.2, Math.random()-0.5).normalize().multiplyScalar(speedBase*(Math.random()+0.5)), life: 2.0+Math.random(), isGib: isGibs });
+                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 2.0+random(), isGib: isGibs });
             }
         }
         function updateParticles(delta) {
@@ -565,25 +584,36 @@
         function setupWorld() {
             const gridHelper = new THREE.GridHelper(2000, 100, 0x223344, 0x111122); scene.add(gridHelper);
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshLambertMaterial({ color: 0x152515 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.1; scene.add(floor);
-            for(let i=0; i<40; i++) { let x=(Math.random()-0.5)*800, z=(Math.random()-0.5)*800; if(Math.abs(x)<50 && Math.abs(z)<50) continue; createPineTree(x, z); }
-            for(let i=0; i<15; i++) { let x=(Math.random()-0.5)*700, z=(Math.random()-0.5)*700; if(Math.abs(x)<80 && Math.abs(z)<80) continue; createFantasyHouse(x, z); }
+            
+            // Generate world using fixed seed for synchronization
+            for(let i=0; i<40; i++) { 
+                let x=(random()-0.5)*800, z=(random()-0.5)*800; 
+                if(Math.abs(x)<50 && Math.abs(z)<50) continue; 
+                createPineTree(x, z, random()); 
+            }
+            for(let i=0; i<15; i++) { 
+                let x=(random()-0.5)*700, z=(random()-0.5)*700; 
+                if(Math.abs(x)<80 && Math.abs(z)<80) continue; 
+                createFantasyHouse(x, z, random()); 
+            }
         }
-        function createPineTree(x, z) {
+        
+        function createPineTree(x, z, seedOffset) {
             const grp = new THREE.Group(); grp.position.set(x,0,z);
             const trunk = new THREE.Mesh(new THREE.CylinderGeometry(2, 4, 30, 8), new THREE.MeshLambertMaterial({color:0x1a0f00})); trunk.position.y = 15; grp.add(trunk);
             const leafMat = new THREE.MeshLambertMaterial({color:0x0a290a});
             const l1 = new THREE.Mesh(new THREE.ConeGeometry(16, 25, 8), leafMat); l1.position.y=25; grp.add(l1);
             const l2 = new THREE.Mesh(new THREE.ConeGeometry(12, 25, 8), leafMat); l2.position.y=40; grp.add(l2);
             const l3 = new THREE.Mesh(new THREE.ConeGeometry(8, 20, 8), leafMat); l3.position.y=52; grp.add(l3);
-            const scale = 0.8 + Math.random() * 0.6; grp.scale.setScalar(scale); scene.add(grp); obstacles.push(grp);
+            const scale = 0.8 + seedOffset * 0.6; grp.scale.setScalar(scale); scene.add(grp); obstacles.push(grp);
         }
-        function createFantasyHouse(x, z) {
+        function createFantasyHouse(x, z, seedOffset) {
             const grp = new THREE.Group(); grp.position.set(x, 0, z);
-            const width = 20 + Math.random() * 10; const depth = 20 + Math.random() * 10; const height = 15;
+            const width = 20 + seedOffset * 10; const depth = 20 + seedOffset * 10; const height = 15;
             const walls = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), new THREE.MeshLambertMaterial({ color: 0x4a3c31 })); walls.position.y = height / 2; grp.add(walls);
             const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(width, depth) * 0.8, 10, 4), new THREE.MeshLambertMaterial({ color: 0x2c1e1e })); roof.position.y = height + 5; roof.rotation.y = Math.PI / 4; grp.add(roof);
             const door = new THREE.Mesh(new THREE.BoxGeometry(6, 10, 1), new THREE.MeshLambertMaterial({ color: 0x1a1110 })); door.position.set(0, 5, depth/2 + 0.1); grp.add(door);
-            grp.rotation.y = Math.random() * Math.PI; scene.add(grp); obstacles.push(grp);
+            grp.rotation.y = seedOffset * Math.PI * 2; scene.add(grp); obstacles.push(grp);
         }
 
         function updateAnimations(delta) {
@@ -638,11 +668,13 @@
                     mesh.userData.attackTimer += delta * 15;
                     if (mesh.userData.attackTimer > Math.PI) {
                         mesh.userData.isAttacking = false;
+                        // Reset attack timer for next attack
+                        mesh.userData.attackTimer = 0;
                     } else {
                         isEnemyAttacking = true;
                         const progress = mesh.userData.attackTimer / Math.PI;
-                        limbs.armR.rotation.x = -Math.PI/4; // Lift
-                        // Add some sweep logic if weapon visible
+                        // Swing animation on remote player's arm
+                        limbs.armR.rotation.x = -Math.PI/4 - Math.sin(progress * Math.PI) * 1.5; 
                     }
                 }
 
@@ -770,7 +802,6 @@
             Object.values(otherPlayers).forEach((e) => {
                 if (e.mesh.position.distanceTo(playerMesh.position) < SETTINGS.whirlwindRadius) {
                     if (socket) socket.emit('playerHit', { damage: SETTINGS.whirlwindDmg, targetId: Object.keys(otherPlayers).find(key => otherPlayers[key] === e) });
-                    // Push effect locally for feedback (optional, real physics sync is harder without authoritative server)
                 }
             });
 
@@ -779,10 +810,10 @@
         function spawnStoneSpikes(target, isEnemy = false) {
             const group = new THREE.Group(); const material = new THREE.MeshLambertMaterial({ color: 0x888888 }); 
             for(let i=0; i<8; i++) { 
-                const height = 8 + Math.random() * 4; const geo = new THREE.ConeGeometry(1.5, height, 6); const mesh = new THREE.Mesh(geo, material);
-                const angle = Math.random() * Math.PI * 2; const radius = 4 + Math.random() * 2; 
+                const height = 8 + random() * 4; const geo = new THREE.ConeGeometry(1.5, height, 6); const mesh = new THREE.Mesh(geo, material);
+                const angle = random() * Math.PI * 2; const radius = 4 + random() * 2; 
                 mesh.position.set(Math.cos(angle)*radius, height/2 - 2, Math.sin(angle)*radius);
-                mesh.rotation.x = (Math.random() - 0.5) * 0.8; mesh.rotation.z = (Math.random() - 0.5) * 0.8; group.add(mesh);
+                mesh.rotation.x = (random() - 0.5) * 0.8; mesh.rotation.z = (random() - 0.5) * 0.8; group.add(mesh);
             }
             if (isEnemy && target) { target.add(group); group.position.set(0, 0, 0); } else { scene.add(group); group.position.copy(target); }
             setTimeout(() => { if(isEnemy && target) target.remove(group); else scene.remove(group); group.children.forEach(c => { c.geometry.dispose(); }); material.dispose(); }, 1500);
@@ -807,7 +838,7 @@
             playSound('shoot_fire');
         }
         function spawnProjectile(type) {
-            let geo, speed, life, color;
+            let geo, speed, color;
             if (type === 1) { geo = new THREE.SphereGeometry(0.5); color = 0x00ffff; speed = 1500.0; } 
             else if (type === 2) { geo = new THREE.SphereGeometry(1.2); color = 0xffffff; speed = 1200.0; } 
             else { geo = new THREE.SphereGeometry(2); color = 0xff6600; speed = SETTINGS.fireballSpeed; } 
@@ -834,37 +865,101 @@
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
         function updateProjectiles(delta) {
+            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
+            
             for (let i = projectiles.length - 1; i >= 0; i--) {
-                const p = projectiles[i]; const move = p.userData.velocity.clone().multiplyScalar(delta);
+                const p = projectiles[i]; 
+                const move = p.userData.velocity.clone().multiplyScalar(delta);
+                const nextPos = p.position.clone().add(move);
+
                 let hit = false, hitPoint = p.position.clone();
-                if(p.position.y+move.y<=0) { hit=true; hitPoint.y=0; } 
+                let hitTarget = null;
+
+                // Collision Check for Projectiles I Fired (isMine: true)
+                if (p.userData.isMine) {
+                    const raycaster = new THREE.Raycaster(p.position, p.userData.velocity.clone().normalize(), 0, move.length());
+                    const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
+
+                    if (intersects.length > 0) {
+                        hit = true;
+                        hitPoint = intersects[0].point;
+                        
+                        let currentObj = intersects[0].object;
+                        while(currentObj) { 
+                            const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
+                            if(target) { hitTarget = target; break; }
+                            currentObj = currentObj.parent;
+                        }
+                        
+                        // If I hit the opponent, notify the server for damage
+                        if (hitTarget) {
+                            let dmg = (p.userData.type===1)?SETTINGS.missileDmg:(p.userData.type===3)?SETTINGS.fireballDmg:0;
+                            if (p.userData.type === 2) dmg = 0; // Push spell doesn't do direct damage
+                            
+                            if (dmg > 0 && socket) {
+                                const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
+                                socket.emit('playerHit', { damage: dmg, targetId: targetId });
+                            }
+                        }
+                    }
+                } 
                 
-                if (!hit && !p.userData.isMine) { // I am the victim
-                    if (p.position.distanceTo(playerMesh.position) < 6) {
+                // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
+                else {
+                    if (nextPos.distanceTo(playerMesh.position) < 6) {
                          hit = true; hitPoint = playerMesh.position;
-                         let dmg = (p.userData.type===1)?20:(p.userData.type===3)?50:0;
+                         let dmg = (p.userData.type===1)?SETTINGS.missileDmg:(p.userData.type===3)?SETTINGS.fireballDmg:0;
+                         
                          if (dmg > 0 && socket) {
+                             // I tell server I took damage
                              socket.emit('playerHit', { damage: dmg, targetId: myId });
                              addToLog(`Colpito! -${dmg} HP`, "dmg-taken"); playSound('hit');
                              
-                             // Apply Knockback/Physics for spells
+                             // Apply Knockback/Physics for spells (LOCAL EFFECT)
                              if (p.userData.type === 2) { // Push
                                  const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
                                  velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
                              } else if (p.userData.type === 3) { // Fireball Jump
-                                 velocity.y += 400; // Jump up
+                                 velocity.y += SETTINGS.fireballUpForce; // Jump up
                              }
                          }
                     }
                 }
+
+                // Check collision with ground (for everyone)
+                if(nextPos.y <= 0) { 
+                    hit=true; 
+                    hitPoint.y = 0; 
+                    // Add explosive effect locally if type 2 or 3 (mine or enemy)
+                    if (p.userData.type === 2 && p.userData.isMine) {
+                        spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
+                        // Apply self-rocket jump
+                        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
+                        let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
+                        velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
+                        addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
+                    } else if (p.userData.type === 3 && p.userData.isMine) {
+                        spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
+                        // Self-damage/knockback if too close to ground hit? Let's skip for simplicity, only direct hits count.
+                    }
+                }
                 
-                if (hit) { spawnExplosionVisual(hitPoint, p.material.color.getHex(), 5); scene.remove(p); projectiles.splice(i, 1); } else { p.position.add(move); p.userData.life -= delta; if (p.userData.life <= 0) { scene.remove(p); projectiles.splice(i, 1); } }
+                if (hit) { 
+                    spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? 15 : 5); 
+                    scene.remove(p); projectiles.splice(i, 1); 
+                } else { 
+                    p.position.add(move); 
+                    p.userData.life -= delta; 
+                    if (p.userData.life <= 0) { scene.remove(p); projectiles.splice(i, 1); }
+                }
             }
         }
         function swingSword() {
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
+            
+            // Notify other player of MELEE attack
             if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
             
             // Melee Hit Check
@@ -874,6 +969,7 @@
                 const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
                 if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
                     if (socket) socket.emit('playerHit', { damage: SETTINGS.meleeDmg, targetId: id });
+                    addToLog(`Colpito ${p.username} con Spada! -${SETTINGS.meleeDmg} HP`, "dmg-dealt");
                 }
             });
         }
@@ -930,7 +1026,6 @@
             document.getElementById('keys-btn').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('bindings-modal').style.display='block'; document.exitPointerLock(); });
             document.getElementById('audio-btn').addEventListener('click', (e) => { e.stopPropagation(); toggleAudio(); });
             document.getElementById('close-bindings').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('bindings-modal').style.display='none'; });
-            // ERROR WAS HERE: Removed bad instructionsModal reference
             const instrModal = document.getElementById('instructions-modal');
             if(instrModal) {
                 const closeBtn = instrModal.querySelector('.close-modal');
