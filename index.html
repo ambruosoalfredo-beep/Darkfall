@@ -778,29 +778,16 @@
             if (playerStats.isDead) return;
             const now = performance.now();
             if (now - lastConversionTime < SETTINGS.conversionCooldown) { addToLog("Ricarica...", "#aaa"); return; }
-            const burstGain = 15; let instantSuccess = false;
-            if (type === 1) { 
-                if (playerStats.hp < playerStats.maxHp) {
-                    playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + burstGain); 
-                    spawnGlowEffect(0xff0000); flashScreen('red'); instantSuccess = true; 
-                    if(socket) socket.emit('playerHealed', { amount: burstGain });
-                } 
-            } 
-            else if (type === 2) { 
-                if (playerStats.mana < playerStats.maxMana) {
-                    playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + burstGain); 
-                    spawnGlowEffect(0x0000ff); flashScreen('blue'); instantSuccess = true; 
-                } 
-            } 
-            else if (type === 3) { 
-                if (playerStats.stamina < playerStats.maxStamina) {
-                    playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + burstGain); 
-                    spawnGlowEffect(0xffff00); flashScreen('yellow'); instantSuccess = true; 
-                } 
-            }
-            if(!instantSuccess) { addToLog("Risorsa già al massimo!", "#555"); return; }
-            playSound('heal'); activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); lastConversionTime = now; updateUI();
-            const slotId = (type === 1) ? 'slot-5' : (type === 2) ? 'slot-6' : 'slot-7'; document.getElementById(slotId).classList.add('channeling'); setTimeout(() => document.getElementById(slotId).classList.remove('channeling'), 5000);
+            
+            // REMOVED INSTANT BURST TO MAKE IT CONSISTENT
+            // Just start the channel
+            playSound('heal'); 
+            activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); 
+            lastConversionTime = now; 
+            updateUI();
+            const slotId = (type === 1) ? 'slot-5' : (type === 2) ? 'slot-6' : 'slot-7'; 
+            document.getElementById(slotId).classList.add('channeling'); 
+            setTimeout(() => document.getElementById(slotId).classList.remove('channeling'), 5000);
         }
         window.performConversion = performConversion;
         function updateConversions(delta) {
@@ -918,7 +905,6 @@
             proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
-        
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
@@ -926,7 +912,7 @@
                 const p = projectiles[i]; 
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
                 
-                // Skip invalid/zero movement to prevent raycaster crash
+                // Skip invalid/zero movement
                 if (move.lengthSq() < 0.000001) continue; 
 
                 const nextPos = p.position.clone().add(move);
@@ -935,17 +921,20 @@
                 
                 // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    // Optimization: Simple distance check for Players instead of Raycasting
-                    // This is much faster and robust for 1v1 web
+                    // Simple distance check for Players instead of Raycasting
+                    // Robust solution for 1v1 web game latency
                     Object.values(otherPlayers).forEach(op => {
-                        if (op.mesh.position.distanceTo(p.position) < 3.0) { // Hitbox radius approx
+                        // Check distance to enemy center position (approx feet)
+                        // Add offset for better body coverage
+                        const center = op.mesh.position.clone().add(new THREE.Vector3(0, 4, 0));
+                        if (center.distanceTo(p.position) < 4.5) { // 4.5 units radius is generous but fair
                             hit = true;
                             hitTarget = op.mesh;
-                            hitPoint = op.mesh.position.clone();
+                            hitPoint = p.position.clone();
                         }
                     });
 
-                    // Only raycast for static obstacles if no player hit yet
+                    // Raycast for obstacles only
                     if (!hit) {
                         obstacleRaycaster.set(p.position, p.userData.velocity.clone().normalize());
                         obstacleRaycaster.far = move.length() + 0.1;
@@ -965,7 +954,6 @@
 
                         if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
-                            // Only send hit event once
                             if (p.userData.type === 2) { 
                                 socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone() });
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Onda d'Urto!`, "spell-cast");
@@ -982,25 +970,33 @@
                 
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
-                    const distanceToPlayer = nextPos.distanceTo(playerMesh.position);
-                    if (distanceToPlayer < 3.0) {
+                    // Check distance to my center
+                    const myCenter = playerMesh.position.clone().add(new THREE.Vector3(0, 4, 0));
+                    const distanceToPlayer = p.position.distanceTo(myCenter);
+                    
+                    if (distanceToPlayer < 4.5) {
                          hit = true; hitPoint = playerMesh.position;
-                         // Physics effect locally for enemy spells (visual feedback only, actual push comes from server event)
-                         // BUT for fluidity, apply small nudge
+                         // Physics effect locally for enemy spells
+                         if (p.userData.type === 2) { 
+                             const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
+                             velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
+                             playerStats.isFalling = true;
+                         } else if (p.userData.type === 3) { 
+                             velocity.y += SETTINGS.fireballUpForce;
+                             playerStats.isFalling = true;
+                         }
                          playSound('hit');
                     }
                 }
 
-                // Check collision with ground (for everyone)
+                // Check collision with ground
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; 
                     hitPoint.y = 0; 
                     p.position.y = 0;
 
-                    // Add explosive effect locally if type 2 or 3 (mine or enemy)
                     if (p.userData.type === 2 && p.userData.isMine) {
                         spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
-                        // Apply self-rocket jump
                         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
@@ -1020,7 +1016,6 @@
                 }
             }
         }
-
         function swingSword() {
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
