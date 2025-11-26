@@ -83,6 +83,12 @@ io.on('connection', (socket) => {
         }
     });
 
+    // NUOVO: Sincronizzazione Effetti Visivi (Cure, Conversioni)
+    socket.on('playerEffect', (data) => {
+        // data: { type: 'heal' | 'mana' | 'stamina', origin: {x,y,z} }
+        socket.broadcast.emit('remoteEffect', { id: socket.id, ...data });
+    });
+
     socket.on('playerAttack', (attackData) => {
         socket.broadcast.emit('enemyAttacked', {
             id: socket.id,
@@ -90,21 +96,17 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Gestione Fisica/Spinta
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
-            
-            // Invia forza fisica al client target
             io.to(targetId).emit('playerPushed', {
                 forceY: pushData.forceY, 
                 forceVec: pushData.forceVec, 
                 pushOrigin: pushData.pushOrigin
             });
-            
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {

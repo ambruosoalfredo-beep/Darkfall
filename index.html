@@ -7,8 +7,21 @@
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
         #screen-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; opacity: 0; transition: opacity 0.1s ease-out; }
-        .floating-text { position: absolute; pointer-events: none; font-weight: bold; font-family: 'Impact', sans-serif; text-shadow: 2px 2px 0 #000; animation: floatUp 1s forwards; z-index: 60; font-size: 20px; }
-        @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.5); } }
+        
+        /* NUOVO STILE DANNI */
+        .floating-text { 
+            position: absolute; pointer-events: none; font-weight: 900; 
+            font-family: 'Arial Black', sans-serif; 
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000; 
+            z-index: 60; font-size: 28px; 
+            animation: popUp 0.8s ease-out forwards;
+        }
+        @keyframes popUp { 
+            0% { opacity: 0; transform: translateY(0) scale(0.5); } 
+            20% { opacity: 1; transform: translateY(-20px) scale(1.2); } 
+            100% { opacity: 0; transform: translateY(-80px) scale(1); } 
+        }
+
         .top-controls { position: absolute; top: 20px; left: 20px; z-index: 100; display: flex; gap: 10px; }
         .btn { padding: 8px 16px; color: white; border: 1px solid rgba(255,255,255,0.3); cursor: pointer; font-weight: bold; font-family: inherit; text-transform: uppercase; font-size: 12px; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); transition: all 0.2s; border-radius: 4px; }
         .btn:hover { background: rgba(255,255,255,0.1); border-color: white; }
@@ -136,7 +149,7 @@
 
         let camera, scene, renderer;
         let playerMesh, swordContainer, staffContainer, shieldMesh;
-        let playerLimbs = { legL: null, legR: null, armL: null, armR: null, head: null, torso: null };
+        let playerLimbs = { legL: null, legR: null, armL: null, armR: null, head: null, torso: null, helmet: null };
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let canJump = false; let isSprinting = false;
         let isBlocking = false; 
@@ -151,7 +164,6 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         
-        // Audio Vars
         let lastFootstepTime = 0;
         let distanceSinceStep = 0;
 
@@ -159,19 +171,13 @@
 
         const SETTINGS = { 
             speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, 
-            missileSpeed: 900.0, missileDmg: 10, missileCost: 5,
+            missileSpeed: 900.0, 
+            missileDmg: 5, // DANNO RIDOTTO
+            missileCost: 5,
             
-            // ONDA D'URTO (Spell 2) - MODIFICATA
-            pushSpeed: 700.0, 
-            pushForce: 900.0, // Forza orizzontale
-            pushUpForce: 500.0, // Forza verticale (SALTO)
-            pushCost: 15, 
-            pushRadius: 30, // Raggio aumentato per l'esplosione
+            pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, pushRadius: 30, 
             
-            // FIREBALL (Spell 3) - NERF SALTO
-            fireballSpeed: 600.0, 
-            fireballUpForce: 600.0, // RIDOTTO (era 900/1100)
-            fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
+            fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
             beamDmg: 25, beamCost: 5, beamRange: 200, 
             fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, 
@@ -180,7 +186,8 @@
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
             spikesCooldown: 3000,
-            blockStaminaCost: 2.0, blockMitigation: 0.8
+            blockStaminaCost: 0.5, // RIDOTTO
+            blockMitigation: 0.8
         };
         
         const instructionsModal = document.getElementById('instructions-modal');
@@ -230,6 +237,25 @@
                     }
                 });
 
+                // NUOVO: EFFETTI REMOTI
+                socket.on('remoteEffect', (data) => {
+                    if (otherPlayers[data.id]) {
+                        let color = 0xffffff;
+                        if(data.type === 'heal') color = 0x00ff00;
+                        else if(data.type === 'mana') color = 0x0000ff;
+                        else if(data.type === 'stamina') color = 0xffff00;
+                        
+                        spawnParticles(otherPlayers[data.id].mesh.position, color, 15, 15, 0.4, false);
+                        const light = new THREE.PointLight(color, 5, 20);
+                        light.position.copy(otherPlayers[data.id].mesh.position).add(new THREE.Vector3(0,5,0));
+                        scene.add(light);
+                        setTimeout(() => scene.remove(light), 300);
+                        
+                        // Audio
+                        if(data.type === 'heal') playSound('heal', otherPlayers[data.id].mesh.position);
+                    }
+                });
+
                 socket.on('enemyAttacked', (data) => { 
                     if (otherPlayers[data.id]) { 
                         if (data.type === 'melee') { otherPlayers[data.id].mesh.userData.isAttacking = true; otherPlayers[data.id].mesh.userData.attackTimer = 0; playSound('swing_heavy', otherPlayers[data.id].mesh.position); } 
@@ -255,10 +281,35 @@
                     playerStats.isFalling = true; canJump = false; playerMesh.position.y += 0.5; 
                 });
 
-                socket.on('updateHealth', (data) => { if (data.id === myId) { playerStats.hp = data.hp; updateUI(); if(data.hp < playerStats.maxHp) flashScreen('red'); } else if (otherPlayers[data.id]) { updateEnemyHealthBar(otherPlayers[data.id], data.hp); spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); } });
-                socket.on('playerDied', (data) => { if (data.id === myId) { playerStats.isDead = true; playerStats.hp = 0; document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; document.getElementById('message').style.display = "block"; document.exitPointerLock(); } else if(otherPlayers[data.id]) { otherPlayers[data.id].mesh.userData.isDead = true; addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true); setTimeout(() => { if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { removeOtherPlayer(data.id); } }, 3000); } });
+                socket.on('updateHealth', (data) => { 
+                    if (data.id === myId) { 
+                        const diff = data.hp - playerStats.hp;
+                        playerStats.hp = data.hp; updateUI(); 
+                        if (diff < 0) {
+                            flashScreen('red'); 
+                        }
+                    } else if (otherPlayers[data.id]) { 
+                        updateEnemyHealthBar(otherPlayers[data.id], data.hp); 
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); 
+                    } 
+                });
+                
+                socket.on('playerDied', (data) => { 
+                    if (data.id === myId) { 
+                        playerStats.isDead = true; playerStats.hp = 0; 
+                        document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
+                        document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
+                    } else if(otherPlayers[data.id]) { 
+                        otherPlayers[data.id].mesh.userData.isDead = true; 
+                        addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true); 
+                        setTimeout(() => { if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { removeOtherPlayer(data.id); } }, 4000); 
+                    } 
+                });
             } else { console.warn("Modalità Offline"); document.getElementById('connection-status').innerText = "OFFLINE"; }
         }
+
+        // --- FUNCTIONS --- (Setup, Graphics, Logic)
 
         const KEYBINDS = { MOVE_FORWARD: 'KeyW', MOVE_LEFT: 'KeyA', MOVE_BACKWARD: 'KeyS', MOVE_RIGHT: 'KeyD', JUMP: 'Space', SPRINT: 'ShiftLeft', WEAPON_SWITCH: 'KeyQ', SPELL_1: 'Digit1', SPELL_2: 'Digit2', SPELL_3: 'Digit3', SPELL_4: 'Digit4', HEAL: 'KeyR', CONVERT_1: 'Digit5', CONVERT_2: 'Digit6', CONVERT_3: 'Digit7' };
         const STORAGE_KEY = 'darkfall_global_save'; 
@@ -328,26 +379,20 @@
 
         function createHelmet(parent) {
              const helmetGroup = new THREE.Group();
-             // Elmo base
              const helmGeo = new THREE.BoxGeometry(3.2, 3.4, 3.4);
              const helmMat = new THREE.MeshStandardMaterial({color: 0x555555, metalness: 0.8, roughness: 0.2});
              const helm = new THREE.Mesh(helmGeo, helmMat);
              helmetGroup.add(helm);
-             
-             // Visiera (Per capire la direzione)
              const visorGeo = new THREE.BoxGeometry(2.8, 0.5, 3.6);
              const visorMat = new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9});
              const visor = new THREE.Mesh(visorGeo, visorMat);
-             visor.position.set(0, 0.2, -0.2); // Leggermente avanti (-Z)
+             visor.position.set(0, 0.2, -0.2);
              helmetGroup.add(visor);
-
-             // Cresta
              const crestGeo = new THREE.BoxGeometry(0.4, 1.5, 3.8);
              const crestMat = new THREE.MeshLambertMaterial({color: 0xc0392b});
              const crest = new THREE.Mesh(crestGeo, crestMat);
              crest.position.y = 2.2;
              helmetGroup.add(crest);
-
              helmetGroup.position.y = 8.5;
              parent.add(helmetGroup);
              return helmetGroup;
@@ -360,7 +405,6 @@
             const torso = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6.5, 3), armorMat); torso.position.y = 3.5; mesh.add(torso);
             const chest = new THREE.Mesh(new THREE.BoxGeometry(4.7, 3.5, 3.2), metalMat); chest.position.y = 5.0; mesh.add(chest);
             
-            // NUOVO: ELMO INVECE DELLA TESTA BASE
             const headGroup = createHelmet(mesh);
 
             const legL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 6.5, 1.6), armorMat); legL.geometry.translate(0,-3.25,0); legL.position.set(-1.4,0.5,0); mesh.add(legL);
@@ -422,8 +466,8 @@
             const torso = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6.5, 3), armorMat); torso.position.y = 3.5; playerMesh.add(torso); playerLimbs.torso = torso;
             const chest = new THREE.Mesh(new THREE.BoxGeometry(4.7, 3.5, 3.2), metalMat); chest.position.y = 5.0; playerMesh.add(chest); chest.userData.isTorsoPart = true; 
             
-            // NUOVO: ELMO ANCHE PER ME (Per le ombre/visuale)
             playerLimbs.head = createHelmet(playerMesh);
+            playerLimbs.helmet = playerLimbs.head;
 
             const legGeo = new THREE.BoxGeometry(1.6, 6.5, 1.6);
             playerLimbs.legL = new THREE.Mesh(legGeo, armorMat); playerLimbs.legL.geometry.translate(0,-3.25,0); playerLimbs.legL.position.set(-1.4,0.5,0); playerMesh.add(playerLimbs.legL);
@@ -502,11 +546,23 @@
         }
         function flashScreen(colorStr) { const flash = document.getElementById('screen-flash'); flash.style.backgroundColor = colorStr; flash.style.opacity = 0.4; setTimeout(() => { flash.style.opacity = 0; }, 150); }
         function spawnGlowEffect(color) {
-            const light = new THREE.PointLight(color, 8, 30); light.position.copy(playerMesh.position).add(new THREE.Vector3(0, 5, 0)); scene.add(light);
-            if(weaponMode === 'ranged') { const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir); const spawnPos = camera.position.clone().add(camDir.multiplyScalar(3)); spawnParticles(spawnPos, color, 10, 5, 0.2, false); } 
-            else { spawnParticles(playerMesh.position, color, 15, 15, 0.3, false); }
+            let spawnPos;
+            // Se ranged, effetto davanti alla camera (non sul player che è invisibile)
+            if(weaponMode === 'ranged') {
+                const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+                spawnPos = camera.position.clone().add(camDir.multiplyScalar(3));
+                spawnParticles(spawnPos, color, 10, 5, 0.2, false);
+            } else {
+                spawnPos = playerMesh.position.clone().add(new THREE.Vector3(0,5,0));
+                spawnParticles(playerMesh.position, color, 15, 15, 0.3, false);
+            }
+            
+            const light = new THREE.PointLight(color, 8, 30); 
+            light.position.copy(spawnPos); 
+            scene.add(light);
+            
             let intensity = 8;
-            const fade = setInterval(() => { intensity -= 0.4; light.intensity = intensity; light.position.copy(playerMesh.position).add(new THREE.Vector3(0, 5, 0)); if (intensity <= 0) { clearInterval(fade); scene.remove(light); } }, 50);
+            const fade = setInterval(() => { intensity -= 0.4; light.intensity = intensity; if (intensity <= 0) { clearInterval(fade); scene.remove(light); } }, 50);
         }
 
         function setupWorld() {
@@ -589,7 +645,19 @@
             
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
-                if (p.isDead) { if (mesh.rotation.z < Math.PI / 2) mesh.rotation.z = Math.min(Math.PI / 2, mesh.rotation.z + delta * 2); mesh.position.y = 6; return; }
+                
+                // --- NUOVA ANIMAZIONE MORTE NEMICO ---
+                if (p.isDead) { 
+                    // Ruota su asse X per sdraiarsi (Face up o down a seconda di rotazione)
+                    if (mesh.rotation.x > -Math.PI / 2) {
+                        mesh.rotation.x = Math.max(-Math.PI / 2, mesh.rotation.x - delta * 4);
+                    }
+                    // Abbassa al suolo (da 6 a 1.5 circa)
+                    if (mesh.position.y > 1.5) {
+                        mesh.position.y -= delta * 10;
+                    }
+                    return; 
+                }
                 
                 const distMoved = mesh.position.distanceTo(p.lastStepPos || mesh.position);
                 if (distMoved > 4.0) { 
@@ -599,10 +667,7 @@
 
                 if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); 
                 
-                // ROTAZIONE CORRETTA
                 if(mesh.userData.targetRot) {
-                     // Utilizzo diretto della rotazione del server. 
-                     // L'elmo ha la visiera, quindi si capisce la direzione.
                      mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
                 }
                 
@@ -650,12 +715,19 @@
             if (!force) weaponMode = (weaponMode === 'ranged') ? 'melee' : 'ranged';
             const isRanged = weaponMode === 'ranged';
             swordContainer.visible = !isRanged; staffContainer.visible = isRanged;
-            // FIX: NON NASCONDO PIU LA TESTA/TORSO IN MELEE
-            // playerLimbs.head.visible = !isRanged; 
-            // playerLimbs.torso.visible = !isRanged;
-            // playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
             
-            playerLimbs.legL.visible = !isRanged; playerLimbs.legR.visible = !isRanged;
+            // --- GESTIONE VISIBILITA' LOCALE (Ranged = Invisibile per me) ---
+            // Nota: I nemici continuano a vedere il mesh completo via rete
+            if(playerLimbs.helmet) playerLimbs.helmet.visible = !isRanged;
+            if(playerLimbs.torso) playerLimbs.torso.visible = !isRanged;
+            if(playerLimbs.legL) playerLimbs.legL.visible = !isRanged;
+            if(playerLimbs.legR) playerLimbs.legR.visible = !isRanged;
+            playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
+            
+            // Le braccia restano visibili in FPS (di solito)
+            playerLimbs.armL.visible = true;
+            playerLimbs.armR.visible = true;
+
             document.getElementById('weapon-mode-text').innerText = isRanged ? "RANGED" : "MELEE";
             document.getElementById('weapon-mode-text').style.color = isRanged ? "cyan" : "orange";
             document.querySelectorAll('.action-slot:not(.slot-q):not(.slot-r):not(#slot-5):not(#slot-6):not(#slot-7)').forEach(s => s.style.opacity = isRanged ? '1' : '0.4');
@@ -727,6 +799,12 @@
             const slotId = (type === 1) ? 'slot-5' : (type === 2) ? 'slot-6' : 'slot-7'; 
             document.getElementById(slotId).classList.add('channeling'); 
             setTimeout(() => document.getElementById(slotId).classList.remove('channeling'), 5000);
+            
+            // Effetti
+            let color = (type === 1) ? 0xff0000 : (type === 2) ? 0x0000ff : 0xffff00;
+            spawnGlowEffect(color);
+            // Invia al server
+            if(socket) socket.emit('playerEffect', { type: (type===1?'heal':(type===2?'mana':'stamina')) });
         }
         window.performConversion = performConversion;
         function updateConversions(delta) {
@@ -741,20 +819,17 @@
             if (type === 1) { 
                 if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { 
                     playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); 
-                    spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); 
                     if(socket) socket.emit('playerHealed', { amount: gain });
                 } 
             } 
             else if (type === 2) { 
                 if (playerStats.hp > cost && playerStats.mana < playerStats.maxMana) { 
                     playerStats.hp -= cost; playerStats.mana = Math.min(playerStats.maxMana, playerStats.mana + gain); 
-                    spawnParticles(playerMesh.position, 0x0000ff, 5, 10, 0.2, false); 
                 } 
             } 
             else if (type === 3) { 
                 if (playerStats.mana >= cost && playerStats.stamina < playerStats.maxStamina) { 
                     playerStats.mana -= cost; playerStats.stamina = Math.min(playerStats.maxStamina, playerStats.stamina + gain); 
-                    spawnParticles(playerMesh.position, 0xffff00, 5, 10, 0.2, false); 
                 } 
             }
             updateUI(); 
@@ -766,7 +841,10 @@
             if (playerStats.hp >= playerStats.maxHp) return;
             playerStats.mana -= SETTINGS.healCost; 
             playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + SETTINGS.healAmount);
-            if(socket) socket.emit('playerHealed', { amount: SETTINGS.healAmount });
+            if(socket) {
+                socket.emit('playerHealed', { amount: SETTINGS.healAmount });
+                socket.emit('playerEffect', { type: 'heal' });
+            }
             lastHealTime = now; addToLog(`Curato di ${SETTINGS.healAmount} HP`, "heal"); createFloatingText(playerMesh.position.clone().add(new THREE.Vector3(0,5,0)), `+${SETTINGS.healAmount}`, '#00ff00');
             spawnGlowEffect(0x00ff00); flashScreen('green'); playSound('heal'); updateUI(); 
         }
@@ -783,7 +861,10 @@
             Object.values(otherPlayers).forEach((e) => {
                 if (e.mesh.position.distanceTo(playerMesh.position) < SETTINGS.whirlwindRadius) {
                     let dmg = SETTINGS.whirlwindDmg;
-                    if(e.mesh.userData.isBlocking) dmg *= (1.0 - SETTINGS.blockMitigation); 
+                    if(e.mesh.userData.isBlocking) {
+                        dmg *= (1.0 - SETTINGS.blockMitigation); 
+                        createFloatingText(e.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    }
                     if (socket) socket.emit('playerHit', { damage: dmg, targetId: Object.keys(otherPlayers).find(key => otherPlayers[key] === e) });
                 }
             });
@@ -899,17 +980,23 @@
 
                         if(otherPlayers[targetId].mesh.userData.isBlocking && (p.userData.type === 1 || p.userData.type === 2)) {
                              dmg *= (1.0 - SETTINGS.blockMitigation); 
-                             createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCCATO", "#aaa");
+                             createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                        } else {
+                             // Numeretto Danno (Approssimato visivo per me)
+                             createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                         }
 
                         if (socket) {
                             if (p.userData.type === 2) { 
-                                // ONDA: ESPLODE SUL NEMICO (AoE)
                                 spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius);
                                 checkShockwaveAoE(hitPoint);
                             } else if (p.userData.type === 3) { 
-                                // FIREBALL: Knockup Moderato
+                                // FIREBALL HIT (Direct)
+                                spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
+                                // Direct damage + Knockup
                                 socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
+                                // AOE Splash (20% damage)
+                                checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.2, false);
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
                             } else if (p.userData.type === 1) { 
                                 socket.emit('playerHit', { damage: dmg, targetId: targetId });
@@ -936,12 +1023,12 @@
 
                     if (p.userData.isMine) {
                         if (p.userData.type === 2) {
-                            // ONDA (Spell 2): AoE Explosion Logic
                             spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
                             checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                            checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.1, false);
+                            // Fireball Ground Splash (20% dmg)
+                            checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.2, false);
                         }
                     }
                 }
@@ -957,35 +1044,26 @@
             }
         }
         
-        // NUOVO: LOGICA ONDA D'URTO AoE (Colpisce TUTTI, me incluso)
         function checkShockwaveAoE(origin) {
-            // 1. Colpisce Me Stesso?
             const distToMe = playerMesh.position.distanceTo(origin);
             if (distToMe < SETTINGS.pushRadius) {
-                // Calcola vettore direzione dal centro esplosione
                 const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
-                // Aggiungi componente UP per il salto
                 const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
                 velocity.add(forceVec);
                 velocity.y += SETTINGS.pushUpForce;
-                
                 canJump = false; playerStats.isFalling = true; playerMesh.position.y += 0.5;
                 addToLog("Sbalzato dall'onda!", "spell-cast"); playSound('jump');
             }
 
-            // 2. Colpisce Nemici?
             Object.values(otherPlayers).forEach(op => {
                 const distToEnemy = op.mesh.position.distanceTo(origin);
                 if (distToEnemy < SETTINGS.pushRadius) {
                     const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
-                    
-                    let finalDmg = 10; // Danno base onda
+                    let finalDmg = 10; 
                     if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation);
-
                     const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
                     const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
-                    forceVec.y = SETTINGS.pushUpForce; // Aggiunge salto anche al nemico
-
+                    forceVec.y = SETTINGS.pushUpForce; 
                     socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
                 }
             });
@@ -997,7 +1075,12 @@
                     const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
                     
                     let finalDmg = damage;
-                    if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation);
+                    if(op.mesh.userData.isBlocking) {
+                        finalDmg *= (1.0 - SETTINGS.blockMitigation);
+                        createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    } else {
+                        createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
+                    }
 
                     if (pushBack) {
                          const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
@@ -1026,7 +1109,9 @@
                     let dmg = SETTINGS.meleeDmg;
                     if(p.mesh.userData.isBlocking) {
                         dmg *= (1.0 - SETTINGS.blockMitigation); 
-                        createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCCATO", "#aaa");
+                        createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    } else {
+                        createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                     }
                     if (socket) {
                          socket.emit('playerPushed', { targetId: id, pushOrigin: origin, damage: dmg });
@@ -1068,7 +1153,7 @@
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
             if (isBlocking) {
-                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
+                playerStats.stamina -= SETTINGS.blockStaminaCost * delta; // 0.5 al sec (corretto sopra)
                 if (playerStats.stamina <= 0) stopBlocking();
             } else {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
