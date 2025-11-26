@@ -25,6 +25,7 @@
         #reset-btn { border-bottom: 2px solid #4caf50; }
         #keys-btn { border-bottom: 2px solid #ffa000; }
         #audio-btn { border-bottom: 2px solid #00bfff; }
+        #change-name-btn { border-bottom: 2px solid #f39c12; } /* New button style */
 
         #action-bar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -92,6 +93,7 @@
         <button id="reset-btn" class="btn">RESPAWN</button>
         <button id="keys-btn" class="btn">COMANDI</button>
         <button id="audio-btn" class="btn">AUDIO: OFF</button>
+        <button id="change-name-btn" class="btn">CAMBIA NOME</button>
     </div>
 
     <div id="crosshair"></div>
@@ -179,7 +181,7 @@
         const velocity = new THREE.Vector3(); 
         let weaponMode = 'ranged'; let currentSpell = 1; 
         let isAttacking = false; let attackTimer = 0; let isWhirlwinding = false; 
-        const playerStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, stamina: 100, maxStamina: 100, isDead: false };
+        const playerStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, stamina: 100, maxStamina: 100, isDead: false, isFalling: false }; // Added isFalling
         const projectiles = [], obstacles = [], particles = [];
         let floatingTexts = [];
         const activeConversions = []; 
@@ -190,6 +192,7 @@
         
         const instructionsModal = document.getElementById('instructions-modal');
         const loginModal = document.getElementById('login-modal');
+        const changeNameBtn = document.getElementById('change-name-btn');
 
         // --- LOGIN LOGIC ---
         function checkLogin() {
@@ -214,6 +217,24 @@
             instructionsModal.style.display = 'block';
             initMultiplayer();
         });
+        
+        changeNameBtn.addEventListener('click', () => {
+             document.exitPointerLock();
+             document.getElementById('login-modal').style.display = 'block';
+             document.getElementById('login-input').value = myUsername;
+             // Riconfigura il pulsante di login per fare solo l'update del nome
+             document.getElementById('btn-login').onclick = () => {
+                const inputName = document.getElementById('login-input').value.trim();
+                if(inputName.length > 0) {
+                    myUsername = inputName;
+                    localStorage.setItem('darkfall_username', myUsername);
+                    // Notify server about name change
+                    if(socket) socket.emit('updateUsername', myUsername);
+                    document.getElementById('connection-status').innerText = "CONNESSO: " + myUsername;
+                }
+                document.getElementById('login-modal').style.display = 'none';
+             };
+        });
 
         function initMultiplayer() {
             if (typeof io !== 'undefined') {
@@ -233,7 +254,7 @@
                     document.getElementById('connection-status').style.color = "red";
                 });
                 
-                socket.on('serverMsg', (msg) => { alert(msg); });
+                socket.on('serverMsg', (msg) => { /* alert(msg); */ addToLog(msg, 'server-msg'); });
 
                 socket.on('currentPlayers', (players) => {
                     Object.keys(players).forEach((id) => {
@@ -250,6 +271,21 @@
                 socket.on('playerDisconnected', (id) => {
                     if (otherPlayers[id]) addToLog(otherPlayers[id].username + " è uscito.", "kill");
                     removeOtherPlayer(id);
+                });
+                
+                socket.on('updateUsername', (data) => {
+                    if (otherPlayers[data.id]) {
+                        otherPlayers[data.id].username = data.username;
+                        // Re-create label with new name
+                        const oldLabel = otherPlayers[data.id].mesh.children.find(c => c.userData.isLabel);
+                        if (oldLabel) otherPlayers[data.id].mesh.remove(oldLabel);
+
+                        const newLabel = createPlayerLabel(data.username);
+                        newLabel.position.y = 14;
+                        newLabel.userData.isLabel = true;
+                        otherPlayers[data.id].mesh.add(newLabel);
+                        otherPlayers[data.id].mesh.userData.hpBar = newLabel.userData.hpBar;
+                    }
                 });
 
                 socket.on('playerMoved', (playerInfo) => {
@@ -306,6 +342,9 @@
                         document.getElementById('message').style.display = "block";
                         document.exitPointerLock();
                     } else if(otherPlayers[data.id]) {
+                         // Fall animation for opponent
+                        otherPlayers[data.id].mesh.userData.isDead = true;
+                        
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill");
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true);
                     }
@@ -426,6 +465,7 @@
             // Name and Health
             const label = createPlayerLabel(info.username);
             label.position.y = 14;
+            label.userData.isLabel = true;
             mesh.add(label);
             mesh.userData.hpBar = label.userData.hpBar; 
 
@@ -437,7 +477,8 @@
                 // Aggiunta stato attacco per animazione remota
                 isAttacking: false,
                 attackTimer: 0,
-                isWhirlwinding: false 
+                isWhirlwinding: false,
+                isDead: false
             };
         }
 
@@ -621,6 +662,15 @@
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             
             // --- Local Player Animation ---
+            if (playerStats.isDead) {
+                // Death animation (fall)
+                if (playerMesh.rotation.z < Math.PI / 2) {
+                    playerMesh.rotation.z = Math.min(Math.PI / 2, playerMesh.rotation.z + delta * 2);
+                }
+                playerMesh.position.y = 6; // Keep it on the ground plane
+                return;
+            }
+
             if (weaponMode === 'ranged') {
                 playerLimbs.armR.rotation.x = -Math.PI / 2 + Math.sin(time) * 0.05 - (isAttacking ? Math.sin(attackTimer * 2) * 0.5 : 0); 
                 playerLimbs.armR.rotation.z = 0;
@@ -628,7 +678,7 @@
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
                 playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
-                if (!canJump) {
+                if (!canJump && !playerStats.isFalling) { // Changed 'canJump' check
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; playerLimbs.torso.rotation.x = 0.2; 
                 } else if (isMoving) { 
@@ -649,6 +699,16 @@
             // --- Remote Players Animation Sync ---
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
+                
+                // Death animation for opponent
+                if (p.isDead) {
+                    if (mesh.rotation.z < Math.PI / 2) {
+                        mesh.rotation.z = Math.min(Math.PI / 2, mesh.rotation.z + delta * 2);
+                    }
+                    mesh.position.y = 6;
+                    return;
+                }
+                
                 if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.1);
                 if(mesh.userData.targetRot) mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
                 
@@ -668,12 +728,10 @@
                     mesh.userData.attackTimer += delta * 15;
                     if (mesh.userData.attackTimer > Math.PI) {
                         mesh.userData.isAttacking = false;
-                        // Reset attack timer for next attack
                         mesh.userData.attackTimer = 0;
                     } else {
                         isEnemyAttacking = true;
                         const progress = mesh.userData.attackTimer / Math.PI;
-                        // Swing animation on remote player's arm
                         limbs.armR.rotation.x = -Math.PI/4 - Math.sin(progress * Math.PI) * 1.5; 
                     }
                 }
@@ -869,15 +927,19 @@
             
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
+                const velocityMagnitude = p.userData.velocity.length();
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
                 const nextPos = p.position.clone().add(move);
 
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
 
+                // Create a ray from current position to next position
+                const direction = p.userData.velocity.clone().normalize();
+                const raycaster = new THREE.Raycaster(p.position, direction, 0, move.length() + 0.1); 
+
                 // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    const raycaster = new THREE.Raycaster(p.position, p.userData.velocity.clone().normalize(), 0, move.length());
                     const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
 
                     if (intersects.length > 0) {
@@ -893,9 +955,11 @@
                         
                         // If I hit the opponent, notify the server for damage
                         if (hitTarget) {
-                            let dmg = (p.userData.type===1)?SETTINGS.missileDmg:(p.userData.type===3)?SETTINGS.fireballDmg:0;
-                            if (p.userData.type === 2) dmg = 0; // Push spell doesn't do direct damage
-                            
+                            let dmg = 0;
+                            if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
+                            else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
+                            // Note: Spell 2 (Push) deals no damage on hit, its effect is purely the push on ground hit (rocket jump)
+
                             if (dmg > 0 && socket) {
                                 const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
                                 socket.emit('playerHit', { damage: dmg, targetId: targetId });
@@ -906,9 +970,13 @@
                 
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
-                    if (nextPos.distanceTo(playerMesh.position) < 6) {
+                    const distanceToPlayer = nextPos.distanceTo(playerMesh.position);
+                    // Proximity check (since opponent meshes are big bounding boxes)
+                    if (distanceToPlayer < 6) {
                          hit = true; hitPoint = playerMesh.position;
-                         let dmg = (p.userData.type===1)?SETTINGS.missileDmg:(p.userData.type===3)?SETTINGS.fireballDmg:0;
+                         let dmg = 0;
+                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
+                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
                          
                          if (dmg > 0 && socket) {
                              // I tell server I took damage
@@ -919,8 +987,10 @@
                              if (p.userData.type === 2) { // Push
                                  const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
                                  velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
+                                 playerStats.isFalling = true;
                              } else if (p.userData.type === 3) { // Fireball Jump
                                  velocity.y += SETTINGS.fireballUpForce; // Jump up
+                                 playerStats.isFalling = true;
                              }
                          }
                     }
@@ -938,9 +1008,8 @@
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
-                    } else if (p.userData.type === 3 && p.userData.isMine) {
+                    } else if (p.userData.type === 3) { // Explosion visual for remote fireball hitting ground
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                        // Self-damage/knockback if too close to ground hit? Let's skip for simplicity, only direct hits count.
                     }
                 }
                 
@@ -993,6 +1062,10 @@
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             let speed = SETTINGS.speed;
+            
+            // Check if player is falling (used for animation state)
+            playerStats.isFalling = velocity.y < -10; 
+
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
             velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
             const rotY = playerMesh.rotation.y;
@@ -1002,6 +1075,7 @@
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
             if(playerMesh.position.y<6) { playerMesh.position.y=6; velocity.y=0; canJump=true; }
+            
             obstacles.forEach(o => { 
                 const box = new THREE.Box3().setFromObject(o);
                 const playerPos = playerMesh.position.clone(); playerPos.y = box.min.y + 1; 
@@ -1035,7 +1109,7 @@
         function setupControls() {
             document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement !== document.body) { if(!playerStats.isDead && document.getElementById('bindings-modal').style.display === 'none' && document.getElementById('login-modal').style.display === 'none') document.getElementById('instructions-modal').style.display = 'block'; } else { document.getElementById('instructions-modal').style.display = 'none'; document.getElementById('bindings-modal').style.display = 'none'; } });
             document.addEventListener('keydown', (e) => {
-                if (keyToRebind) return; 
+                if (keyToRebind || playerStats.isDead) return; 
                 switch(e.code) {
                     case KEYBINDS.MOVE_FORWARD: moveForward=true; break; case KEYBINDS.MOVE_LEFT: moveLeft=true; break; case KEYBINDS.MOVE_BACKWARD: moveBackward=true; break; case KEYBINDS.MOVE_RIGHT: moveRight=true; break;
                     case KEYBINDS.JUMP: if(canJump) velocity.y+=SETTINGS.jumpForce; canJump=false; break;
@@ -1048,15 +1122,15 @@
                 }
             });
             document.addEventListener('keyup', (e) => {
-                if(keyToRebind) return;
+                if(keyToRebind || playerStats.isDead) return;
                 switch(e.code) { 
                     case KEYBINDS.MOVE_FORWARD: moveForward=false; break; case KEYBINDS.MOVE_LEFT: moveLeft=false; break; case KEYBINDS.MOVE_BACKWARD: moveBackward=false; break; case KEYBINDS.MOVE_RIGHT: moveRight=false; break; case KEYBINDS.SPRINT: isSprinting=false; break; 
                     case KEYBINDS.SPELL_1: stopCasting('Digit1'); break; case KEYBINDS.SPELL_2: stopCasting('Digit2'); break; case KEYBINDS.SPELL_3: stopCasting('Digit3'); break; case KEYBINDS.SPELL_4: stopCasting('Digit4'); break;
                 }
             });
             document.body.addEventListener('mousemove', (e) => { if(document.pointerLockElement===document.body && !playerStats.isDead) { euler.y-=e.movementX*0.002; euler.x-=e.movementY*0.002; euler.x=Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x)); playerMesh.rotation.y=euler.y; } });
-            document.addEventListener('mousedown', () => { if(document.pointerLockElement===document.body) { if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } else { performAttack(); } } });
-            document.addEventListener('mouseup', () => { if (weaponMode === 'ranged') stopCasting('Mouse'); });
+            document.addEventListener('mousedown', () => { if(document.pointerLockElement===document.body && !playerStats.isDead) { if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } else { performAttack(); } } });
+            document.addEventListener('mouseup', () => { if (weaponMode === 'ranged' && !playerStats.isDead) stopCasting('Mouse'); });
         }
         function resetGame() { location.reload(); }
         function updateUI() {
@@ -1076,11 +1150,12 @@
         function animate() {
             requestAnimationFrame(animate);
             const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
-            if (document.pointerLockElement === document.body && !playerStats.isDead) {
+            if (!playerStats.isDead) { // Allow update only if not dead
                 updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
                 updateConversions(delta); updateFloatingTexts(delta);
-                updateAnimations(delta); updateParticles(delta); updateSwordAnimation(delta); updateCamera(); 
+                updateSwordAnimation(delta); updateCamera(); 
             }
+            updateAnimations(delta); // Run animations even when dead for fall effect
             updateUI(); renderer.render(scene, camera);
         }
         init();
