@@ -5,7 +5,7 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server, {
   cors: { origin: "*" },
-  pingTimeout: 5000, // Rileva disconnessioni più velocemente
+  pingTimeout: 5000,
   pingInterval: 10000
 });
 const path = require('path');
@@ -17,17 +17,14 @@ app.get('/', (req, res) => {
 });
 
 let players = {};
-let lastSeen = {}; // Per tracciare i giocatori inattivi
+let lastSeen = {}; 
 
 io.on('connection', (socket) => {
     console.log('Nuova connessione: ' + socket.id);
     lastSeen[socket.id] = Date.now();
 
     socket.on('joinGame', (userData) => {
-        // Pulizia preventiva se l'ID esisteva già
         if (players[socket.id]) delete players[socket.id];
-
-        // Limite giocatori
         if (Object.keys(players).length >= 2) {
             socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
             return;
@@ -43,11 +40,10 @@ io.on('connection', (socket) => {
             position: { x: 0, y: 6, z: 0 },
             rotation: { x: 0, y: 0, z: 0 },
             animState: 'idle',
-            weaponMode: 'ranged',
+            weaponMode: 'ranged', // Default
             isDead: false
         };
 
-        // Sync iniziale
         socket.emit('currentPlayers', players);
         socket.broadcast.emit('newPlayer', players[socket.id]);
     });
@@ -64,7 +60,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('playerMovement', (data) => {
-        lastSeen[socket.id] = Date.now(); // Aggiorna heartbeat
+        lastSeen[socket.id] = Date.now();
         if (players[socket.id]) {
             players[socket.id].position = data.position;
             players[socket.id].rotation = data.rotation;
@@ -85,19 +81,16 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Gestione Fisica/Spinta
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
-            // Invia la forza al client specifico
             io.to(targetId).emit('playerPushed', {
                 force: pushData.force,
                 pushOrigin: pushData.pushOrigin
             });
-            // Aggiorna tutti sulla salute
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
@@ -107,13 +100,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Danno Diretto
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {
             players[targetId].hp -= dmgData.damage;
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
-            
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
@@ -138,12 +129,11 @@ io.on('connection', (socket) => {
     });
 });
 
-// Pulizia automatica giocatori fantasma (ogni 5 secondi)
 setInterval(() => {
     const now = Date.now();
     Object.keys(players).forEach(id => {
-        if (lastSeen[id] && (now - lastSeen[id] > 10000)) { // 10 secondi di inattività
-            console.log('Rimozione giocatore fantasma: ' + id);
+        if (lastSeen[id] && (now - lastSeen[id] > 10000)) {
+            console.log('Rimozione giocatore inattivo: ' + id);
             delete players[id];
             delete lastSeen[id];
             io.emit('playerDisconnected', id);
