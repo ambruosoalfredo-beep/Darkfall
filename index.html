@@ -183,7 +183,7 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        // SLOWER SPEEDS FOR BETTER COMBAT
+        // Updated SETTINGS: fireballUpForce is increased to 1100 for air combos
         const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
         const instructionsModal = document.getElementById('instructions-modal');
@@ -320,6 +320,8 @@
                                 if(otherPlayers[data.id]) otherPlayers[data.id].mesh.userData.isWhirlwinding = false; 
                             }, 500);
                             playSound('swing');
+                        } else if (data.type === 'spikes') {
+                            spawnStoneSpikes(data.origin, false); // Show remote spikes
                         } else {
                             spawnEnemyProjectile(data.origin, data.direction, data.type);
                         }
@@ -327,18 +329,21 @@
                 });
                 
                 socket.on('playerPushed', (data) => {
-                    if (data.force) {
-                        velocity.y += data.force; // Vertical push
-                    } else {
-                        // Horizontal push
-                        const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
-                        const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
-                        velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
+                    if (data.targetId === myId) {
+                        if (data.force) {
+                            // VERTICAL LAUNCH (Overwrite velocity)
+                            velocity.y = data.force;
+                        } else {
+                            // Horizontal push
+                            const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
+                            const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
+                            velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
+                        }
+                        playerStats.isFalling = true;
+                        canJump = false;
+                        // Lift off ground slightly to ensure physics engine treats us as airborne
+                        playerMesh.position.y += 0.2;
                     }
-                    // Force lift off ground immediately for physics engine
-                    playerMesh.position.y += 0.5; 
-                    playerStats.isFalling = true;
-                    canJump = false;
                 });
 
                 socket.on('updateHealth', (data) => {
@@ -350,14 +355,6 @@
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp);
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false);
                     }
-                });
-                
-                socket.on('playerRespawned', (data) => {
-                     if(otherPlayers[data.id]) {
-                        otherPlayers[data.id].mesh.userData.isDead = false;
-                        otherPlayers[data.id].mesh.rotation.z = 0;
-                        updateEnemyHealthBar(otherPlayers[data.id], 100);
-                     }
                 });
 
                 socket.on('playerDied', (data) => {
@@ -915,7 +912,10 @@
                 if(enemyFound) {
                     spawnStoneSpikes(enemyFound, true); 
                     const hitId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === enemyFound);
-                    if(hitId && socket) socket.emit('playerHit', { damage: SETTINGS.beamDmg, targetId: hitId }); 
+                    if(hitId && socket) {
+                        socket.emit('playerHit', { damage: SETTINGS.beamDmg, targetId: hitId }); 
+                        socket.emit('playerAttack', { type: 'spikes', origin: enemyFound.position, direction: new THREE.Vector3(0,1,0) }); // VISUAL FIX
+                    }
                     addToLog("Spuntoni di Pietra colpiti!", "spell-cast"); playSound('hit');
                 } else { spawnStoneSpikes(hitPoint, false); }
             }
@@ -923,9 +923,9 @@
         }
         function spawnProjectile(type) {
             let geo, speed, color;
-            if (type === 1) { geo = new THREE.SphereGeometry(0.5); color = 0x00ffff; speed = SETTINGS.missileSpeed; } 
-            else if (type === 2) { geo = new THREE.SphereGeometry(1.2); color = 0xffffff; speed = SETTINGS.pushSpeed; } 
-            else { geo = new THREE.SphereGeometry(2); color = 0xff6600; speed = SETTINGS.fireballSpeed; } 
+            if (type === 1) { geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; } 
+            else if (type === 2) { geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; } 
+            else { geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; } 
             const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             const spawnPos = getStaffTip();
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
@@ -941,13 +941,14 @@
         function spawnEnemyProjectile(startPos, direction, type) {
             let color = 0xff0000; let speed = 900;
             if (type === 1) { color = 0x00ffff; speed = SETTINGS.missileSpeed; } else if (type === 2) { color = 0xffffff; speed = SETTINGS.pushSpeed; } else if (type === 3) { color = 0xff6600; speed = SETTINGS.fireballSpeed; }
-            const geo = new THREE.SphereGeometry(type === 2 ? 1.2 : (type===3 ? 2 : 0.5)); const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
+            const geo = new THREE.SphereGeometry(type === 2 ? 1.8 : (type===3 ? 3.0 : 1.0)); const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
             const light = new THREE.PointLight(color, 1, 20); proj.add(light);
             proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
+        
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
@@ -964,7 +965,7 @@
                 
                 // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    // CYLINDER HITBOX LOGIC (Much better for full body hit)
+                    // CYLINDER HITBOX LOGIC (Improved)
                     Object.values(otherPlayers).forEach(op => {
                         // Distance on XZ plane (flat)
                         const dx = p.position.x - op.mesh.position.x;
@@ -973,7 +974,7 @@
                         // Height difference
                         const dy = p.position.y - op.mesh.position.y;
 
-                        // Hitbox: Radius 5.0, Height 15.0 (covers head to toe)
+                        // Hitbox: Radius 5.0 (generous), Height 15.0 (covers head to toe)
                         if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                             hit = true;
                             hitTarget = op.mesh;
@@ -1026,6 +1027,7 @@
                     // My own hitbox logic (Cylinder)
                     if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
+                         // No physics here, wait for server event to apply knockback to prevent desync
                          playSound('hit');
                     }
                 }
@@ -1043,8 +1045,12 @@
                         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); 
+                        
+                        // FORCE JUMP STATE
                         canJump = false;
-                        playerStats.isFalling = true; // Allow fly
+                        playerStats.isFalling = true; // Allow fly logic
+                        playerMesh.position.y += 0.5; // Unstick from ground
+                        
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
                     } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -1102,7 +1108,8 @@
             let speed = SETTINGS.speed;
             
             // FIX FALLING LOGIC TO ALLOW KNOCKBACK
-            if (velocity.y < -10) playerStats.isFalling = true;
+            // If velocity is upward (knockback) OR downward (falling)
+            if (velocity.y != 0) playerStats.isFalling = true;
 
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
             velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
@@ -1113,8 +1120,9 @@
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
             
-            // FIX GROUND COLLISION: Only stop if falling down
+            // FIX GROUND COLLISION: Only stop if falling down (negative velocity)
             if(playerMesh.position.y < 6) { 
+                // If moving down or barely moving, snap to floor
                 if (velocity.y <= 0) {
                     playerMesh.position.y = 6; 
                     velocity.y = 0; 
