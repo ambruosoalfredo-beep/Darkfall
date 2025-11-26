@@ -4,10 +4,9 @@ const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+  cors: { origin: "*" },
+  pingTimeout: 5000, // Rileva disconnessioni più velocemente
+  pingInterval: 10000
 });
 const path = require('path');
 
@@ -18,14 +17,18 @@ app.get('/', (req, res) => {
 });
 
 let players = {};
+let lastSeen = {}; // Per tracciare i giocatori inattivi
 
 io.on('connection', (socket) => {
     console.log('Nuova connessione: ' + socket.id);
+    lastSeen[socket.id] = Date.now();
 
-    // Gestione ingresso gioco
     socket.on('joinGame', (userData) => {
-        // Se ci sono già 2 giocatori e questo socket non è uno di loro
-        if (Object.keys(players).length >= 2 && !players[socket.id]) {
+        // Pulizia preventiva se l'ID esisteva già
+        if (players[socket.id]) delete players[socket.id];
+
+        // Limite giocatori
+        if (Object.keys(players).length >= 2) {
             socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
             return;
         }
@@ -44,20 +47,15 @@ io.on('connection', (socket) => {
             isDead: false
         };
 
-        // Invia al nuovo giocatore la lista di chi c'è già
+        // Sync iniziale
         socket.emit('currentPlayers', players);
-
-        // Avvisa gli altri che è arrivato un nuovo giocatore
         socket.broadcast.emit('newPlayer', players[socket.id]);
     });
     
-    // RICHIESTA POSIZIONE: Risolve il bug per cui chi entra dopo non vede chi era fermo
     socket.on('requestPosition', () => {
-        // Chiedo a tutti gli altri di inviare la loro posizione attuale
         socket.broadcast.emit('forcePositionUpdate');
     });
 
-    // Aggiornamento Nome
     socket.on('updateUsername', (username) => {
         if(players[socket.id]) {
             players[socket.id].username = username;
@@ -65,8 +63,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Movimento
     socket.on('playerMovement', (data) => {
+        lastSeen[socket.id] = Date.now(); // Aggiorna heartbeat
         if (players[socket.id]) {
             players[socket.id].position = data.position;
             players[socket.id].rotation = data.rotation;
@@ -75,15 +73,11 @@ io.on('connection', (socket) => {
             
             socket.broadcast.emit('playerMoved', {
                 id: socket.id,
-                position: data.position,
-                rotation: data.rotation,
-                animState: data.animState,
-                weaponMode: data.weaponMode
+                ...data
             });
         }
     });
 
-    // Attacco (Animazione)
     socket.on('playerAttack', (attackData) => {
         socket.broadcast.emit('enemyAttacked', {
             id: socket.id,
@@ -91,26 +85,20 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Gestione Sbalzamento (Knockback)
+    // Gestione Fisica/Spinta
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
-            // Applica danno se presente
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
-            
-            // Invia la spinta al client colpito
+            // Invia la forza al client specifico
             io.to(targetId).emit('playerPushed', {
                 force: pushData.force,
                 pushOrigin: pushData.pushOrigin
             });
-
-            // Aggiorna la vita a tutti
-            io.emit('updateHealth', { 
-                id: targetId, 
-                hp: players[targetId].hp 
-            });
+            // Aggiorna tutti sulla salute
+            io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
@@ -119,16 +107,12 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Danno standard
+    // Danno Diretto
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {
             players[targetId].hp -= dmgData.damage;
-            
-            io.emit('updateHealth', { 
-                id: targetId, 
-                hp: players[targetId].hp 
-            });
+            io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
             
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
@@ -137,35 +121,35 @@ io.on('connection', (socket) => {
         }
     });
     
-    // Cura
     socket.on('playerHealed', (healData) => {
         if (players[socket.id]) {
             players[socket.id].hp = Math.min(players[socket.id].maxHp, players[socket.id].hp + healData.amount);
-            players[socket.id].isDead = false; // Resurrect logic handled by client respawn usually
-            
-            io.emit('updateHealth', { 
-                id: socket.id, 
-                hp: players[socket.id].hp 
-            });
-        }
-    });
-
-    // Respawn
-    socket.on('playerRespawn', () => {
-        if (players[socket.id]) {
-            players[socket.id].hp = 100;
-            players[socket.id].isDead = false;
-            io.emit('playerRespawned', { id: socket.id });
-            io.emit('updateHealth', { id: socket.id, hp: 100 });
+            io.emit('updateHealth', { id: socket.id, hp: players[socket.id].hp });
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('Guerriero disconnesso: ' + socket.id);
-        delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
+        console.log('Disconnesso: ' + socket.id);
+        if (players[socket.id]) {
+            delete players[socket.id];
+            io.emit('playerDisconnected', socket.id);
+        }
+        delete lastSeen[socket.id];
     });
 });
+
+// Pulizia automatica giocatori fantasma (ogni 5 secondi)
+setInterval(() => {
+    const now = Date.now();
+    Object.keys(players).forEach(id => {
+        if (lastSeen[id] && (now - lastSeen[id] > 10000)) { // 10 secondi di inattività
+            console.log('Rimozione giocatore fantasma: ' + id);
+            delete players[id];
+            delete lastSeen[id];
+            io.emit('playerDisconnected', id);
+        }
+    });
+}, 5000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
