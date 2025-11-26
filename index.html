@@ -183,7 +183,6 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        // Updated SETTINGS: pushForce 900, fireballUpForce 1000 (was 400) for air combos
         const SETTINGS = { speed: 600.0, sprintMulti: 1.6, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
         const instructionsModal = document.getElementById('instructions-modal');
@@ -316,15 +315,11 @@
                 // NEW: Handle Physics Effects from Server
                 socket.on('playerPushed', (data) => {
                     if (data.targetId === myId) {
-                        // INSTANT VELOCITY APPLICATION (No decay delay)
                         if (data.force) {
-                            // Vertical (Fireball)
                             velocity.y += data.force;
                         } else {
-                            // Horizontal (Shockwave/Push)
                             const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
                             const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
-                            // Add explosive force immediately
                             velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
                         }
                         playerStats.isFalling = true;
@@ -925,6 +920,7 @@
             proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
+        
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
@@ -943,11 +939,15 @@
                 if (p.userData.isMine) {
                     // Simple distance check for Players instead of Raycasting
                     // Robust solution for 1v1 web game latency
+                    // Using "Cylinder" check logic
                     Object.values(otherPlayers).forEach(op => {
-                        // Check distance to enemy center position (approx feet)
-                        // Add offset for better body coverage (HITBOX HEAD FIX: y=6)
-                        const center = op.mesh.position.clone().add(new THREE.Vector3(0, 6.0, 0));
-                        if (center.distanceTo(p.position) < 5.0) { // 5.0 units radius
+                        const dx = p.position.x - op.mesh.position.x;
+                        const dz = p.position.z - op.mesh.position.z;
+                        const distXZ = Math.sqrt(dx*dx + dz*dz);
+                        const dy = p.position.y - op.mesh.position.y;
+
+                        // Hitbox: Radius 5.0, Height 15.0 (from y=0 to y=15)
+                        if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                             hit = true;
                             hitTarget = op.mesh;
                             hitPoint = p.position.clone();
@@ -970,13 +970,13 @@
                         let dmg = 0;
                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
-                        else if (p.userData.type === 2) dmg = 10; // Spell 2 deals 10 damage now
+                        // Spell 2 (Push) deals no damage on hit.
 
                         if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
                             // Only send hit event once
                             if (p.userData.type === 2) { 
-                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), damage: dmg }); // Added damage
+                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), damage: 10 }); // Spell 2 does 10 dmg
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Onda d'Urto!`, "spell-cast");
                             } else if (p.userData.type === 3) { 
                                 socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), force: SETTINGS.fireballUpForce, damage: dmg });
@@ -991,21 +991,13 @@
                 
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
-                    // Check distance to my center (HITBOX FIX)
-                    const myCenter = playerMesh.position.clone().add(new THREE.Vector3(0, 6.0, 0));
-                    const distanceToPlayer = p.position.distanceTo(myCenter);
+                    const dx = p.position.x - playerMesh.position.x;
+                    const dz = p.position.z - playerMesh.position.z;
+                    const distXZ = Math.sqrt(dx*dx + dz*dz);
+                    const dy = p.position.y - playerMesh.position.y;
                     
-                    if (distanceToPlayer < 5.0) {
+                    if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
-                         // Physics effect locally for enemy spells
-                         if (p.userData.type === 2) { 
-                             const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
-                             velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
-                             playerStats.isFalling = true;
-                         } else if (p.userData.type === 3) { 
-                             velocity.y += SETTINGS.fireballUpForce;
-                             playerStats.isFalling = true;
-                         }
                          playSound('hit');
                     }
                 }
@@ -1024,7 +1016,7 @@
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
-                    } else if (p.userData.type === 3) { // Explosion visual for remote fireball hitting ground
+                    } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
                     }
                 }
@@ -1092,7 +1084,16 @@
             if (moveRight) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), speed*delta);
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
-            if(playerMesh.position.y<6) { playerMesh.position.y=6; velocity.y=0; canJump=true; playerStats.isFalling = false; }
+            
+            // Updated ground collision logic to allow jump from knockback
+            if(playerMesh.position.y < 6) { 
+                if (velocity.y <= 0) {
+                    playerMesh.position.y = 6; 
+                    velocity.y = 0; 
+                    canJump = true; 
+                    playerStats.isFalling = false; 
+                }
+            }
             
             obstacles.forEach(o => { 
                 const box = new THREE.Box3().setFromObject(o);
