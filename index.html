@@ -312,6 +312,23 @@
                     }
                 });
                 
+                // NEW: Handle Physics Effects from Server
+                socket.on('playerPushed', (data) => {
+                    if (data.targetId === myId) {
+                        if (data.force) {
+                            // Vertical (Fireball)
+                            velocity.y += data.force;
+                        } else {
+                            // Horizontal (Shockwave/Push)
+                            const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
+                            const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
+                            velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
+                        }
+                        playerStats.isFalling = true;
+                        // Damage comes via updateHealth if applicable, but visuals here
+                    }
+                });
+
                 socket.on('updateHealth', (data) => {
                     if (data.id === myId) {
                         playerStats.hp = data.hp;
@@ -912,7 +929,7 @@
                 const p = projectiles[i]; 
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
                 
-                // Skip invalid/zero movement
+                // Skip invalid/zero movement to prevent raycaster crash
                 if (move.lengthSq() < 0.000001) continue; 
 
                 const nextPos = p.position.clone().add(move);
@@ -926,8 +943,8 @@
                     Object.values(otherPlayers).forEach(op => {
                         // Check distance to enemy center position (approx feet)
                         // Add offset for better body coverage
-                        const center = op.mesh.position.clone().add(new THREE.Vector3(0, 4, 0));
-                        if (center.distanceTo(p.position) < 4.5) { // 4.5 units radius is generous but fair
+                        const center = op.mesh.position.clone().add(new THREE.Vector3(0, 3.5, 0));
+                        if (center.distanceTo(p.position) < 6.0) { // 6.0 units radius is very generous for easier hits
                             hit = true;
                             hitTarget = op.mesh;
                             hitPoint = p.position.clone();
@@ -954,6 +971,7 @@
 
                         if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
+                            // Only send hit event once
                             if (p.userData.type === 2) { 
                                 socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone() });
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Onda d'Urto!`, "spell-cast");
@@ -971,10 +989,10 @@
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
                     // Check distance to my center
-                    const myCenter = playerMesh.position.clone().add(new THREE.Vector3(0, 4, 0));
+                    const myCenter = playerMesh.position.clone().add(new THREE.Vector3(0, 3.5, 0));
                     const distanceToPlayer = p.position.distanceTo(myCenter);
                     
-                    if (distanceToPlayer < 4.5) {
+                    if (distanceToPlayer < 6.0) {
                          hit = true; hitPoint = playerMesh.position;
                          // Physics effect locally for enemy spells
                          if (p.userData.type === 2) { 
@@ -989,19 +1007,21 @@
                     }
                 }
 
-                // Check collision with ground
+                // Check collision with ground (for everyone)
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; 
                     hitPoint.y = 0; 
                     p.position.y = 0;
 
+                    // Add explosive effect locally if type 2 or 3 (mine or enemy)
                     if (p.userData.type === 2 && p.userData.isMine) {
                         spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
+                        // Apply self-rocket jump
                         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
-                    } else if (p.userData.type === 3) { 
+                    } else if (p.userData.type === 3) { // Explosion visual for remote fireball hitting ground
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
                     }
                 }
@@ -1021,8 +1041,10 @@
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
             
+            // Notify other player of MELEE attack
             if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
             
+            // Melee Hit Check
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
