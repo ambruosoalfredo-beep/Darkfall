@@ -26,8 +26,7 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (userData) => {
         if (players[socket.id]) delete players[socket.id];
         
-        // Limita a 2 giocatori (opzionale, per ora lascio il controllo)
-        if (Object.keys(players).length >= 10) { // Alzato limite per test
+        if (Object.keys(players).length >= 10) {
             socket.emit('serverMsg', 'Server pieno!');
             return;
         }
@@ -43,7 +42,7 @@ io.on('connection', (socket) => {
             rotation: { x: 0, y: 0, z: 0 },
             animState: 'idle',
             weaponMode: 'ranged',
-            isBlocking: false, // NUOVO STATO
+            isBlocking: false,
             isDead: false
         };
 
@@ -77,7 +76,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // NUOVO: Gestione Parata
     socket.on('playerBlock', (isBlocking) => {
         if (players[socket.id]) {
             players[socket.id].isBlocking = isBlocking;
@@ -96,15 +94,14 @@ io.on('connection', (socket) => {
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
-            // Calcolo danno gestito dal client che spara, ma il server applica
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
             
-            // Invia forza fisica al client target (Vettore o valore Y)
+            // Invia forza fisica al client target
             io.to(targetId).emit('playerPushed', {
-                forceY: pushData.forceY, // Per salti verticali (Fireball)
-                forceVec: pushData.forceVec, // Per spinte direzionali (Onda)
+                forceY: pushData.forceY, 
+                forceVec: pushData.forceVec, 
                 pushOrigin: pushData.pushOrigin
             });
             
@@ -117,7 +114,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Danno Diretto
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {

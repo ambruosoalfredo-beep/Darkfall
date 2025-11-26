@@ -139,7 +139,7 @@
         let playerLimbs = { legL: null, legR: null, armL: null, armR: null, head: null, torso: null };
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let canJump = false; let isSprinting = false;
-        let isBlocking = false; // NUOVO STATO
+        let isBlocking = false; 
         let prevTime = performance.now();
         const velocity = new THREE.Vector3(); 
         let weaponMode = 'ranged'; let currentSpell = 1; 
@@ -156,12 +156,23 @@
         let distanceSinceStep = 0;
 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        // AGGIORNATE STATISTICHE DANNI
+
         const SETTINGS = { 
             speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, 
-            missileSpeed: 900.0, missileDmg: 10, missileCost: 5, // DANNO RIDOTTO A 10
-            pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 600.0, pushCost: 15, pushRadius: 20, // ROCKET JUMP RIDOTTO
-            fireballSpeed: 600.0, fireballUpForce: 900.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, // ADD UP FORCE
+            missileSpeed: 900.0, missileDmg: 10, missileCost: 5,
+            
+            // ONDA D'URTO (Spell 2) - MODIFICATA
+            pushSpeed: 700.0, 
+            pushForce: 900.0, // Forza orizzontale
+            pushUpForce: 500.0, // Forza verticale (SALTO)
+            pushCost: 15, 
+            pushRadius: 30, // Raggio aumentato per l'esplosione
+            
+            // FIREBALL (Spell 3) - NERF SALTO
+            fireballSpeed: 600.0, 
+            fireballUpForce: 600.0, // RIDOTTO (era 900/1100)
+            fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
+            
             beamDmg: 25, beamCost: 5, beamRange: 200, 
             fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, 
             manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, 
@@ -169,7 +180,7 @@
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
             spikesCooldown: 3000,
-            blockStaminaCost: 2.0, blockMitigation: 0.8 // NUOVO
+            blockStaminaCost: 2.0, blockMitigation: 0.8
         };
         
         const instructionsModal = document.getElementById('instructions-modal');
@@ -177,7 +188,6 @@
         const changeNameBtn = document.getElementById('change-name-btn');
         const obstacleRaycaster = new THREE.Raycaster();
 
-        // Prevent Right Click Menu
         document.addEventListener('contextmenu', event => event.preventDefault());
 
         function checkLogin() {
@@ -213,7 +223,6 @@
                 socket.on('updateUsername', (data) => { if (otherPlayers[data.id]) { otherPlayers[data.id].username = data.username; const oldLabel = otherPlayers[data.id].mesh.children.find(c => c.userData.isLabel); if (oldLabel) otherPlayers[data.id].mesh.remove(oldLabel); const newLabel = createPlayerLabel(data.username); newLabel.position.y = 14; newLabel.userData.isLabel = true; otherPlayers[data.id].mesh.add(newLabel); otherPlayers[data.id].mesh.userData.hpBar = newLabel.userData.hpBar; } });
                 socket.on('playerMoved', (playerInfo) => { if (otherPlayers[playerInfo.id]) { const p = otherPlayers[playerInfo.id]; p.mesh.userData.targetPos = playerInfo.position; p.mesh.userData.targetRot = playerInfo.rotation; p.mesh.userData.animState = playerInfo.animState; if(p.mesh.userData.weaponMode !== playerInfo.weaponMode) { p.mesh.userData.weaponMode = playerInfo.weaponMode; updateOpponentWeaponVisuals(otherPlayers[playerInfo.id], playerInfo.weaponMode); } } });
                 
-                // NUOVO: Aggiornamento Parata Nemica
                 socket.on('updateEnemyBlock', (data) => {
                     if (otherPlayers[data.id]) {
                         otherPlayers[data.id].mesh.userData.isBlocking = data.isBlocking;
@@ -234,11 +243,10 @@
                     } 
                 });
                 
-                // GESTIONE FISICA DAL SERVER
                 socket.on('playerPushed', (data) => { 
                     if (data.forceY) { velocity.y = data.forceY; } 
                     if (data.forceVec) { velocity.add(new THREE.Vector3(data.forceVec.x, data.forceVec.y, data.forceVec.z)); }
-                    // Fallback vecchia logica onde
+                    
                     if (!data.forceY && !data.forceVec && data.pushOrigin) { 
                         const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z); 
                         const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize(); 
@@ -269,8 +277,6 @@
         
         function playSound(type, pos = null) {
             if (!audioEnabled) return; 
-            
-            // 3D Audio distance attenuation (simple)
             let vol = 0.1;
             if (pos) {
                 const dist = playerMesh.position.distanceTo(pos);
@@ -285,11 +291,7 @@
             else if (type === 'hit') { osc.type = 'square'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.1); gain.gain.setValueAtTime(vol, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1); osc.start(now); osc.stop(now + 0.1); } 
             else if (type === 'jump') { osc.type = 'sine'; osc.frequency.setValueAtTime(150, now); osc.frequency.linearRampToValueAtTime(300, now + 0.2); gain.gain.setValueAtTime(vol, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2); osc.start(now); osc.stop(now + 0.2); } 
             else if (type === 'heal') { osc.type = 'sine'; osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(800, now + 0.5); gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.5); osc.start(now); osc.stop(now + 0.5); } 
-            
-            // NUOVO: SUONI AGGIUNTI
-            else if (type === 'swing') { 
-                osc.type = 'triangle'; osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.2); gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2); osc.start(now); osc.stop(now + 0.2); 
-            }
+            else if (type === 'swing') { osc.type = 'triangle'; osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.2); gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2); osc.start(now); osc.stop(now + 0.2); }
             else if (type === 'swing_heavy') {
                 const osc2 = audioCtx.createOscillator(); osc2.type = 'sawtooth'; 
                 osc.frequency.setValueAtTime(150, now); osc.frequency.linearRampToValueAtTime(50, now + 0.3);
@@ -305,7 +307,6 @@
                 osc.start(now); osc.stop(now + 0.5);
             }
             else if (type === 'step') {
-                // Low thud
                 osc.type = 'triangle';
                 const pitch = 80 + Math.random() * 20;
                 osc.frequency.setValueAtTime(pitch, now); osc.frequency.exponentialRampToValueAtTime(pitch * 0.5, now + 0.08);
@@ -317,12 +318,39 @@
         function init() {
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2a45); scene.fog = new THREE.Fog(0x2a2a45, 50, 600);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 1000);
-            createPlayer(); createSword(); createStaff(); createShield(); // NUOVO
+            createPlayer(); createSword(); createStaff(); createShield(); 
             const light = new THREE.HemisphereLight(0x777799, 0x111122, 1.0); scene.add(light); const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5); dirLight.position.set(100, 200, 50); dirLight.castShadow = true; scene.add(dirLight);
             seed = WORLD_SEED; setupWorld(); setupControls(); setupUIEvents();
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement); window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
             checkLogin(); toggleWeapon(true); updateActionBarUI(); initKeybindUI(); animate();
+        }
+
+        function createHelmet(parent) {
+             const helmetGroup = new THREE.Group();
+             // Elmo base
+             const helmGeo = new THREE.BoxGeometry(3.2, 3.4, 3.4);
+             const helmMat = new THREE.MeshStandardMaterial({color: 0x555555, metalness: 0.8, roughness: 0.2});
+             const helm = new THREE.Mesh(helmGeo, helmMat);
+             helmetGroup.add(helm);
+             
+             // Visiera (Per capire la direzione)
+             const visorGeo = new THREE.BoxGeometry(2.8, 0.5, 3.6);
+             const visorMat = new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9});
+             const visor = new THREE.Mesh(visorGeo, visorMat);
+             visor.position.set(0, 0.2, -0.2); // Leggermente avanti (-Z)
+             helmetGroup.add(visor);
+
+             // Cresta
+             const crestGeo = new THREE.BoxGeometry(0.4, 1.5, 3.8);
+             const crestMat = new THREE.MeshLambertMaterial({color: 0xc0392b});
+             const crest = new THREE.Mesh(crestGeo, crestMat);
+             crest.position.y = 2.2;
+             helmetGroup.add(crest);
+
+             helmetGroup.position.y = 8.5;
+             parent.add(helmetGroup);
+             return helmetGroup;
         }
 
         function addOtherPlayer(info) {
@@ -331,21 +359,22 @@
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x95a5a6, metalness: 0.9 });
             const torso = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6.5, 3), armorMat); torso.position.y = 3.5; mesh.add(torso);
             const chest = new THREE.Mesh(new THREE.BoxGeometry(4.7, 3.5, 3.2), metalMat); chest.position.y = 5.0; mesh.add(chest);
-            const headGroup = new THREE.Group(); headGroup.position.y = 8.5; headGroup.add(new THREE.Mesh(new THREE.BoxGeometry(3, 3.2, 3.2), metalMat)); mesh.add(headGroup);
+            
+            // NUOVO: ELMO INVECE DELLA TESTA BASE
+            const headGroup = createHelmet(mesh);
+
             const legL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 6.5, 1.6), armorMat); legL.geometry.translate(0,-3.25,0); legL.position.set(-1.4,0.5,0); mesh.add(legL);
             const legR = new THREE.Mesh(new THREE.BoxGeometry(1.6, 6.5, 1.6), armorMat); legR.geometry.translate(0,-3.25,0); legR.position.set(1.4,0.5,0); mesh.add(legR);
             const armL = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3,6,0); mesh.add(armL);
             const armR = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3,6,0); mesh.add(armR);
             const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,22), new THREE.MeshStandardMaterial({color:0x3e2723})); staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff);
             
-            // Sword
             const swordGroup = new THREE.Group();
             const blade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 18, 0.2), new THREE.MeshStandardMaterial({color:0xecf0f1})); blade.position.y=10; swordGroup.add(blade);
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             swordGroup.position.set(0,-5,0.5); swordGroup.rotation.x=Math.PI/2; swordGroup.visible = false; armR.add(swordGroup);
 
-            // NUOVO: Enemy Shield
             const shield = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4 }));
             shield.position.set(0, -3, 3); shield.visible = false; armL.add(shield);
 
@@ -383,7 +412,6 @@
         function updateEnemyShield(p, blocking) {
             if(p.weaponMeshes && p.weaponMeshes.shield) {
                 p.weaponMeshes.shield.visible = blocking;
-                // Ruota braccio sinistro
                 if(blocking) p.limbs.armL.rotation.x = -Math.PI/3;
             }
         }
@@ -393,7 +421,10 @@
             const armorMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, metalness: 0.7 }); const metalMat = new THREE.MeshStandardMaterial({ color: 0x95a5a6, metalness: 0.9 });
             const torso = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6.5, 3), armorMat); torso.position.y = 3.5; playerMesh.add(torso); playerLimbs.torso = torso;
             const chest = new THREE.Mesh(new THREE.BoxGeometry(4.7, 3.5, 3.2), metalMat); chest.position.y = 5.0; playerMesh.add(chest); chest.userData.isTorsoPart = true; 
-            const headGroup = new THREE.Group(); headGroup.position.y = 8.5; headGroup.add(new THREE.Mesh(new THREE.BoxGeometry(3, 3.2, 3.2), metalMat)); headGroup.add(new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.5, 3.3), new THREE.MeshStandardMaterial({color:0}) )).position.z = 0; headGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.4, 2, 3.5), new THREE.MeshLambertMaterial({color:0xc0392b}))).position.set(0,2.5,0); playerLimbs.head = headGroup; playerMesh.add(headGroup);
+            
+            // NUOVO: ELMO ANCHE PER ME (Per le ombre/visuale)
+            playerLimbs.head = createHelmet(playerMesh);
+
             const legGeo = new THREE.BoxGeometry(1.6, 6.5, 1.6);
             playerLimbs.legL = new THREE.Mesh(legGeo, armorMat); playerLimbs.legL.geometry.translate(0,-3.25,0); playerLimbs.legL.position.set(-1.4,0.5,0); playerMesh.add(playerLimbs.legL);
             playerLimbs.legR = new THREE.Mesh(legGeo, armorMat); playerLimbs.legR.geometry.translate(0,-3.25,0); playerLimbs.legR.position.set(1.4,0.5,0); playerMesh.add(playerLimbs.legR);
@@ -419,7 +450,6 @@
             const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.8), new THREE.MeshBasicMaterial({color:0x00ffff, transparent:true, opacity:0.9})); gem.position.y=17; staffContainer.add(gem);
             staffContainer.userData.gem = gem; staffContainer.position.set(0,-4,0); staffContainer.rotation.x=-Math.PI/6; playerLimbs.armR.add(staffContainer);
         }
-        // NUOVO: SHIELD VISUAL
         function createShield() {
             shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
             shieldMesh.position.set(0, -3, 3);
@@ -548,7 +578,6 @@
                 }
             }
 
-            // NUOVO: BLOCK ANIMATION LOCALE
             if (isBlocking) {
                 playerLimbs.armL.rotation.x = -Math.PI / 3;
                 playerLimbs.armL.rotation.z = Math.PI / 6;
@@ -562,15 +591,20 @@
                 const mesh = p.mesh;
                 if (p.isDead) { if (mesh.rotation.z < Math.PI / 2) mesh.rotation.z = Math.min(Math.PI / 2, mesh.rotation.z + delta * 2); mesh.position.y = 6; return; }
                 
-                // Audio passi nemici
                 const distMoved = mesh.position.distanceTo(p.lastStepPos || mesh.position);
-                if (distMoved > 4.0) { // Threshold passo
+                if (distMoved > 4.0) { 
                     playSound('step', mesh.position);
                     p.lastStepPos.copy(mesh.position);
                 }
 
                 if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); 
-                if(mesh.userData.targetRot) mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
+                
+                // ROTAZIONE CORRETTA
+                if(mesh.userData.targetRot) {
+                     // Utilizzo diretto della rotazione del server. 
+                     // L'elmo ha la visiera, quindi si capisce la direzione.
+                     mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
+                }
                 
                 const state = mesh.userData.animState;
                 const limbs = p.limbs;
@@ -616,14 +650,16 @@
             if (!force) weaponMode = (weaponMode === 'ranged') ? 'melee' : 'ranged';
             const isRanged = weaponMode === 'ranged';
             swordContainer.visible = !isRanged; staffContainer.visible = isRanged;
-            playerLimbs.head.visible = !isRanged; playerLimbs.torso.visible = !isRanged;
-            playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
+            // FIX: NON NASCONDO PIU LA TESTA/TORSO IN MELEE
+            // playerLimbs.head.visible = !isRanged; 
+            // playerLimbs.torso.visible = !isRanged;
+            // playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
+            
             playerLimbs.legL.visible = !isRanged; playerLimbs.legR.visible = !isRanged;
             document.getElementById('weapon-mode-text').innerText = isRanged ? "RANGED" : "MELEE";
             document.getElementById('weapon-mode-text').style.color = isRanged ? "cyan" : "orange";
             document.querySelectorAll('.action-slot:not(.slot-q):not(.slot-r):not(#slot-5):not(#slot-6):not(#slot-7)').forEach(s => s.style.opacity = isRanged ? '1' : '0.4');
             
-            // Disattiva parata se passo a ranged
             if(isRanged) stopBlocking();
         }
 
@@ -662,7 +698,7 @@
             if (playerStats.isDead) return;
             if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } 
             else { 
-                if(isBlocking) return; // Non attaccare mentre pari
+                if(isBlocking) return; 
                 if (performance.now() - lastAttackTime < SETTINGS.meleeRate) return; 
                 lastAttackTime = performance.now(); 
                 swingSword(); 
@@ -747,7 +783,7 @@
             Object.values(otherPlayers).forEach((e) => {
                 if (e.mesh.position.distanceTo(playerMesh.position) < SETTINGS.whirlwindRadius) {
                     let dmg = SETTINGS.whirlwindDmg;
-                    if(e.mesh.userData.isBlocking) dmg *= (1.0 - SETTINGS.blockMitigation); // Riduzione parata
+                    if(e.mesh.userData.isBlocking) dmg *= (1.0 - SETTINGS.blockMitigation); 
                     if (socket) socket.emit('playerHit', { damage: dmg, targetId: Object.keys(otherPlayers).find(key => otherPlayers[key] === e) });
                 }
             });
@@ -859,9 +895,8 @@
                         let dmg = 0;
                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
-                        else if (p.userData.type === 2) dmg = 10; // Onda d'urto danno base basso
+                        else if (p.userData.type === 2) dmg = 10; 
 
-                        // MITIGAZIONE PARATA
                         if(otherPlayers[targetId].mesh.userData.isBlocking && (p.userData.type === 1 || p.userData.type === 2)) {
                              dmg *= (1.0 - SETTINGS.blockMitigation); 
                              createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCCATO", "#aaa");
@@ -869,13 +904,11 @@
 
                         if (socket) {
                             if (p.userData.type === 2) { 
-                                // ONDA: Spinta Indietro + danno
-                                const forceVec = p.userData.velocity.clone().normalize().multiplyScalar(SETTINGS.pushForce);
-                                forceVec.y = 200; // Un po' di lift
-                                socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: dmg }); 
-                                addToLog(`Colpito ${otherPlayers[targetId].username} con Onda!`, "spell-cast");
+                                // ONDA: ESPLODE SUL NEMICO (AoE)
+                                spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius);
+                                checkShockwaveAoE(hitPoint);
                             } else if (p.userData.type === 3) { 
-                                // FIREBALL: Knockup (Salto in alto)
+                                // FIREBALL: Knockup Moderato
                                 socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
                             } else if (p.userData.type === 1) { 
@@ -901,30 +934,20 @@
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; hitPoint.y = 0; p.position.y = 0;
 
-                    // Miei proiettili che esplodono a terra
                     if (p.userData.isMine) {
                         if (p.userData.type === 2) {
-                            // ROCKET JUMP
+                            // ONDA (Spell 2): AoE Explosion Logic
                             spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
-                            const distToImpact = p.position.distanceTo(playerMesh.position);
-                            if(distToImpact < 15.0) {
-                                 const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
-                                 let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
-                                 velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false; playerStats.isFalling = true; playerMesh.position.y += 0.5;
-                                 addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
-                            }
-                            // NUOVO: SPLASH DAMAGE NEMICI (Onda)
-                            checkSplashDamage(hitPoint, SETTINGS.pushRadius, 10, true);
+                            checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                            // NUOVO: SPLASH DAMAGE NEMICI (Fireball 10% damage)
                             checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.1, false);
                         }
                     }
                 }
                 
                 if (hit) { 
-                    spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? 15 : 5); 
+                    if(p.userData.type !== 2) spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? 15 : 5); 
                     scene.remove(p); projectiles.splice(i, 1); 
                 } else { 
                     p.position.add(move); p.userData.life -= delta; 
@@ -934,7 +957,40 @@
             }
         }
         
-        // NUOVO: Logica Splash Damage
+        // NUOVO: LOGICA ONDA D'URTO AoE (Colpisce TUTTI, me incluso)
+        function checkShockwaveAoE(origin) {
+            // 1. Colpisce Me Stesso?
+            const distToMe = playerMesh.position.distanceTo(origin);
+            if (distToMe < SETTINGS.pushRadius) {
+                // Calcola vettore direzione dal centro esplosione
+                const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
+                // Aggiungi componente UP per il salto
+                const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
+                velocity.add(forceVec);
+                velocity.y += SETTINGS.pushUpForce;
+                
+                canJump = false; playerStats.isFalling = true; playerMesh.position.y += 0.5;
+                addToLog("Sbalzato dall'onda!", "spell-cast"); playSound('jump');
+            }
+
+            // 2. Colpisce Nemici?
+            Object.values(otherPlayers).forEach(op => {
+                const distToEnemy = op.mesh.position.distanceTo(origin);
+                if (distToEnemy < SETTINGS.pushRadius) {
+                    const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
+                    
+                    let finalDmg = 10; // Danno base onda
+                    if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation);
+
+                    const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
+                    const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
+                    forceVec.y = SETTINGS.pushUpForce; // Aggiunge salto anche al nemico
+
+                    socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
+                }
+            });
+        }
+        
         function checkSplashDamage(origin, radius, damage, pushBack) {
             Object.values(otherPlayers).forEach(op => {
                 if (op.mesh.position.distanceTo(origin) < radius) {
@@ -945,7 +1001,7 @@
 
                     if (pushBack) {
                          const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
-                         const forceVec = dir.multiplyScalar(SETTINGS.pushForce * 0.5); // Metà forza se non diretto
+                         const forceVec = dir.multiplyScalar(SETTINGS.pushForce * 0.5); 
                          forceVec.y = 100;
                          socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
                     } else {
@@ -969,7 +1025,7 @@
                 if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
                     let dmg = SETTINGS.meleeDmg;
                     if(p.mesh.userData.isBlocking) {
-                        dmg *= (1.0 - SETTINGS.blockMitigation); // 80% riduzione
+                        dmg *= (1.0 - SETTINGS.blockMitigation); 
                         createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCCATO", "#aaa");
                     }
                     if (socket) {
@@ -980,7 +1036,6 @@
             });
         }
         
-        // NUOVO: GESTIONE PARATA
         function startBlocking() {
             if (weaponMode !== 'melee' || isBlocking || playerStats.stamina < 5) return;
             isBlocking = true;
@@ -1012,9 +1067,8 @@
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
-            // Stamina regen or Block Drain
             if (isBlocking) {
-                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; // *10 per scalare su 100
+                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
                 if (playerStats.stamina <= 0) stopBlocking();
             } else {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
@@ -1023,8 +1077,6 @@
             let speed = SETTINGS.speed;
             
             if (velocity.y != 0) playerStats.isFalling = true;
-
-            // Rallenta se pari
             if(isBlocking) speed *= 0.5;
 
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0 && !isBlocking) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
@@ -1042,10 +1094,9 @@
             if(moving) {
                 moveVec.normalize();
                 velocity.addScaledVector(moveVec, speed * delta);
-                // AUDIO PASSI LOCAL
                 if(!playerStats.isFalling) {
                     distanceSinceStep += speed * delta;
-                    if(distanceSinceStep > 400.0) { // distanza tra passi
+                    if(distanceSinceStep > 400.0) { 
                         playSound('step');
                         distanceSinceStep = 0;
                     }
@@ -1117,12 +1168,11 @@
             });
             document.body.addEventListener('mousemove', (e) => { if(document.pointerLockElement===document.body && !playerStats.isDead) { euler.y-=e.movementX*0.002; euler.x-=e.movementY*0.002; euler.x=Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x)); playerMesh.rotation.y=euler.y; } });
             
-            // AGGIORNATO: GESTIONE TASTO DESTRO PARATA
             document.addEventListener('mousedown', (e) => { 
                 if(document.pointerLockElement===document.body && !playerStats.isDead) {
-                    if (e.button === 0) { // Sinistro
+                    if (e.button === 0) { 
                         if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } else { performAttack(); } 
-                    } else if (e.button === 2) { // Destro
+                    } else if (e.button === 2) { 
                         if (weaponMode === 'melee') startBlocking();
                     }
                 } 
