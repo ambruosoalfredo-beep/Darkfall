@@ -25,7 +25,7 @@
         #reset-btn { border-bottom: 2px solid #4caf50; }
         #keys-btn { border-bottom: 2px solid #ffa000; }
         #audio-btn { border-bottom: 2px solid #00bfff; }
-        #change-name-btn { border-bottom: 2px solid #f39c12; } /* New button style */
+        #change-name-btn { border-bottom: 2px solid #f39c12; }
 
         #action-bar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -50,7 +50,6 @@
         
         .slot-q .spell-icon { color: #fff; text-shadow: 0 0 5px cyan; }
         .slot-1 .spell-icon { color: #00ffff; } .slot-2 .spell-icon { color: #ffffff; } .slot-3 .spell-icon { color: #ff6600; } .slot-4 .spell-icon { color: #aa00ff; } .slot-r .spell-icon { color: #00ff00; }
-        /* FIX UI ICONS COLORS */
         #slot-5 .spell-icon, #slot-6 .spell-icon, #slot-7 .spell-icon { color: white; }
 
         #cast-bar-container { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); width: 200px; height: 16px; background: #222; border: 1px solid #777; display: none; z-index: 40; border-radius: 4px; overflow: hidden; }
@@ -161,17 +160,13 @@
         let myId = null;
         let myUsername = "Player";
         
-        // --- WORLD GENERATION SEED (FIXED for synchronization) ---
         const WORLD_SEED = 123456;
         let seed = WORLD_SEED;
-
-        // Custom PRNG function
         function random() {
             seed = (seed * 9301 + 49297) % 233280;
             return seed / 233280;
         }
 
-        // --- GLOBAL VARS ---
         let camera, scene, renderer;
         let playerMesh, swordContainer, staffContainer;
         let playerLimbs = { legL: null, legR: null, armL: null, armR: null, head: null, torso: null };
@@ -181,7 +176,7 @@
         const velocity = new THREE.Vector3(); 
         let weaponMode = 'ranged'; let currentSpell = 1; 
         let isAttacking = false; let attackTimer = 0; let isWhirlwinding = false; 
-        const playerStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, stamina: 100, maxStamina: 100, isDead: false, isFalling: false }; // Added isFalling
+        const playerStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, stamina: 100, maxStamina: 100, isDead: false, isFalling: false };
         const projectiles = [], obstacles = [], particles = [];
         let floatingTexts = [];
         const activeConversions = []; 
@@ -193,8 +188,10 @@
         const instructionsModal = document.getElementById('instructions-modal');
         const loginModal = document.getElementById('login-modal');
         const changeNameBtn = document.getElementById('change-name-btn');
+        
+        // GLOBAL RAYCASTER FOR OPTIMIZATION
+        const collisionRaycaster = new THREE.Raycaster();
 
-        // --- LOGIN LOGIC ---
         function checkLogin() {
             const savedName = localStorage.getItem('darkfall_username');
             if (savedName) {
@@ -222,13 +219,11 @@
              document.exitPointerLock();
              document.getElementById('login-modal').style.display = 'block';
              document.getElementById('login-input').value = myUsername;
-             // Riconfigura il pulsante di login per fare solo l'update del nome
              document.getElementById('btn-login').onclick = () => {
                 const inputName = document.getElementById('login-input').value.trim();
                 if(inputName.length > 0) {
                     myUsername = inputName;
                     localStorage.setItem('darkfall_username', myUsername);
-                    // Notify server about name change
                     if(socket) socket.emit('updateUsername', myUsername);
                     document.getElementById('connection-status').innerText = "CONNESSO: " + myUsername;
                 }
@@ -254,7 +249,7 @@
                     document.getElementById('connection-status').style.color = "red";
                 });
                 
-                socket.on('serverMsg', (msg) => { /* alert(msg); */ addToLog(msg, 'server-msg'); });
+                socket.on('serverMsg', (msg) => { addToLog(msg, 'server-msg'); });
 
                 socket.on('currentPlayers', (players) => {
                     Object.keys(players).forEach((id) => {
@@ -276,10 +271,8 @@
                 socket.on('updateUsername', (data) => {
                     if (otherPlayers[data.id]) {
                         otherPlayers[data.id].username = data.username;
-                        // Re-create label with new name
                         const oldLabel = otherPlayers[data.id].mesh.children.find(c => c.userData.isLabel);
                         if (oldLabel) otherPlayers[data.id].mesh.remove(oldLabel);
-
                         const newLabel = createPlayerLabel(data.username);
                         newLabel.position.y = 14;
                         newLabel.userData.isLabel = true;
@@ -294,7 +287,6 @@
                         p.mesh.userData.targetPos = playerInfo.position;
                         p.mesh.userData.targetRot = playerInfo.rotation;
                         p.mesh.userData.animState = playerInfo.animState; 
-                        
                         if(p.mesh.userData.weaponMode !== playerInfo.weaponMode) {
                             p.mesh.userData.weaponMode = playerInfo.weaponMode;
                             updateOpponentWeaponVisuals(p.mesh, playerInfo.weaponMode);
@@ -305,19 +297,16 @@
                 socket.on('enemyAttacked', (data) => {
                     if (otherPlayers[data.id]) {
                         if (data.type === 'melee') {
-                            // Trigger remote melee animation
                             otherPlayers[data.id].mesh.userData.isAttacking = true;
                             otherPlayers[data.id].mesh.userData.attackTimer = 0;
                             playSound('swing');
                         } else if (data.type === 'whirlwind') {
-                            // Trigger remote whirlwind
                             otherPlayers[data.id].mesh.userData.isWhirlwinding = true;
                             setTimeout(() => { 
                                 if(otherPlayers[data.id]) otherPlayers[data.id].mesh.userData.isWhirlwinding = false; 
                             }, 500);
                             playSound('swing');
                         } else {
-                            // Spawna proiettile nemico. La logica di collisione contro il mio player è in updateProjectiles.
                             spawnEnemyProjectile(data.origin, data.direction, data.type);
                         }
                     }
@@ -327,7 +316,6 @@
                     if (data.id === myId) {
                         playerStats.hp = data.hp;
                         updateUI();
-                        // Non flashare lo schermo se mi curo
                         if(data.hp < playerStats.maxHp) flashScreen('red'); 
                     } else if (otherPlayers[data.id]) {
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp);
@@ -343,9 +331,7 @@
                         document.getElementById('message').style.display = "block";
                         document.exitPointerLock();
                     } else if(otherPlayers[data.id]) {
-                         // Fall animation for opponent
                         otherPlayers[data.id].mesh.userData.isDead = true;
-                        
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill");
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true);
                     }
@@ -356,7 +342,6 @@
             }
         }
 
-        // --- CONFIGURAZIONE GLOBALE ---
         const KEYBINDS = {
             MOVE_FORWARD: 'KeyW', MOVE_LEFT: 'KeyA', MOVE_BACKWARD: 'KeyS', MOVE_RIGHT: 'KeyD',
             JUMP: 'Space', SPRINT: 'ShiftLeft', WEAPON_SWITCH: 'KeyQ',
@@ -368,7 +353,6 @@
         loadLocal();
         function saveKeybinds(binds) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(binds)); } catch(e) {} }
 
-        // --- KEYBINDING UI ---
         const KEY_NAMES_MAP = {
             MOVE_FORWARD: "Avanti", MOVE_LEFT: "Sinistra", MOVE_BACKWARD: "Indietro", MOVE_RIGHT: "Destra",
             JUMP: "Salto", SPRINT: "Scatto", WEAPON_SWITCH: "Cambia/Whirlwind",
@@ -408,7 +392,6 @@
             set('lbl-heal', 'HEAL'); set('lbl-conv1', 'CONVERT_1'); set('lbl-conv2', 'CONVERT_2'); set('lbl-conv3', 'CONVERT_3');
         }
 
-        // --- AUDIO SYSTEM ---
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         let audioEnabled = false;
         function toggleAudio() { audioEnabled = !audioEnabled; document.getElementById('audio-btn').innerText = audioEnabled ? "AUDIO: ON" : "AUDIO: OFF"; if(audioEnabled && audioCtx.state === 'suspended') audioCtx.resume(); }
@@ -423,7 +406,6 @@
             else if (type === 'swing') { osc.type = 'triangle'; osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.2); gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2); osc.start(now); osc.stop(now + 0.2); }
         }
 
-        // --- INIT ---
         function init() {
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2a45); scene.fog = new THREE.Fog(0x2a2a45, 50, 600);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 1000);
@@ -431,7 +413,6 @@
             const light = new THREE.HemisphereLight(0x777799, 0x111122, 1.0); scene.add(light);
             const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5); dirLight.position.set(100, 200, 50); dirLight.castShadow = true; scene.add(dirLight);
             
-            // Reset seed before generating world
             seed = WORLD_SEED; 
             setupWorld(); 
             
@@ -441,11 +422,10 @@
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
             
             checkLogin();
-            
             toggleWeapon(true); updateActionBarUI(); initKeybindUI(); 
+            animate();
         }
 
-        // --- OTHER PLAYER LOGIC ---
         function addOtherPlayer(info) {
             const mesh = new THREE.Group();
             const armorMat = new THREE.MeshStandardMaterial({ color: 0x800000, metalness: 0.7 }); 
@@ -460,10 +440,9 @@
             const armR = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3,6,0); mesh.add(armR);
             
             const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,22), new THREE.MeshStandardMaterial({color:0x3e2723}));
-            staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff); // Attach to arm
+            staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff);
             mesh.position.set(info.position.x, info.position.y, info.position.z);
             
-            // Name and Health
             const label = createPlayerLabel(info.username);
             label.position.y = 14;
             label.userData.isLabel = true;
@@ -475,7 +454,6 @@
                 username: info.username, 
                 mesh: mesh, 
                 limbs: { armL, armR, legL, legR, head: headGroup, torso },
-                // Aggiunta stato attacco per animazione remota
                 isAttacking: false,
                 attackTimer: 0,
                 isWhirlwinding: false,
@@ -525,11 +503,8 @@
         function removeOtherPlayer(id) {
             if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; }
         }
-        function updateOpponentWeaponVisuals(mesh, mode) {
-            // Simplification: in melee mode, maybe hide staff or show sword
-        }
+        function updateOpponentWeaponVisuals(mesh, mode) {}
 
-        // --- LOCAL PLAYER ---
         function createPlayer() {
             playerMesh = new THREE.Group();
             const armorMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, metalness: 0.7 });
@@ -569,7 +544,6 @@
             staffContainer.userData.gem = gem; staffContainer.position.set(0,-4,0); staffContainer.rotation.x=-Math.PI/6; playerLimbs.armR.add(staffContainer);
         }
 
-        // --- EFFECTS ---
         function spawnParticles(pos, color, count, speedBase, size, isGibs) {
             const mat = new THREE.MeshBasicMaterial({ color: color });
             for(let i=0; i<count; i++) {
@@ -622,12 +596,9 @@
             const fade = setInterval(() => { intensity -= 0.4; light.intensity = intensity; light.position.copy(playerMesh.position).add(new THREE.Vector3(0, 5, 0)); if (intensity <= 0) { clearInterval(fade); scene.remove(light); } }, 50);
         }
 
-        // --- WORLD & ANIMATION ---
         function setupWorld() {
             const gridHelper = new THREE.GridHelper(2000, 100, 0x223344, 0x111122); scene.add(gridHelper);
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshLambertMaterial({ color: 0x152515 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.1; scene.add(floor);
-            
-            // Generate world using fixed seed for synchronization
             for(let i=0; i<40; i++) { 
                 let x=(random()-0.5)*800, z=(random()-0.5)*800; 
                 if(Math.abs(x)<50 && Math.abs(z)<50) continue; 
@@ -662,13 +633,11 @@
             const time = performance.now() * 0.005;
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             
-            // --- Local Player Animation ---
             if (playerStats.isDead) {
-                // Death animation (fall)
                 if (playerMesh.rotation.z < Math.PI / 2) {
                     playerMesh.rotation.z = Math.min(Math.PI / 2, playerMesh.rotation.z + delta * 2);
                 }
-                playerMesh.position.y = 6; // Keep it on the ground plane
+                playerMesh.position.y = 6; 
                 return;
             }
 
@@ -679,7 +648,7 @@
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
                 playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
-                if (!canJump && !playerStats.isFalling) { // Changed 'canJump' check
+                if (!canJump && !playerStats.isFalling) { 
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; playerLimbs.torso.rotation.x = 0.2; 
                 } else if (isMoving) { 
@@ -697,11 +666,8 @@
                 }
             }
             
-            // --- Remote Players Animation Sync ---
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
-                
-                // Death animation for opponent
                 if (p.isDead) {
                     if (mesh.rotation.z < Math.PI / 2) {
                         mesh.rotation.z = Math.min(Math.PI / 2, mesh.rotation.z + delta * 2);
@@ -710,21 +676,19 @@
                     return;
                 }
                 
-                if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.1);
+                if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); // Increased lerp speed
                 if(mesh.userData.targetRot) mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
                 
                 const state = mesh.userData.animState;
                 const limbs = p.limbs;
                 let isEnemyAttacking = false;
 
-                // WHIRLWIND SYNC
                 if (mesh.userData.isWhirlwinding) {
                     mesh.rotation.y += delta * 20;
                     limbs.armR.rotation.x = -Math.PI/2; limbs.armL.rotation.x = -Math.PI/2;
                     return;
                 }
 
-                // MELEE ATTACK SYNC
                 if (mesh.userData.isAttacking) {
                     mesh.userData.attackTimer += delta * 15;
                     if (mesh.userData.attackTimer > Math.PI) {
@@ -748,7 +712,6 @@
                         limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
                     }
                 }
-                // Ensure label faces camera
                 if(mesh.userData.hpBar) mesh.userData.hpBar.parent.lookAt(camera.position);
             });
         }
@@ -766,7 +729,6 @@
             document.querySelectorAll('.action-slot:not(.slot-q):not(.slot-r):not(#slot-5):not(#slot-6):not(#slot-7)').forEach(s => s.style.opacity = isRanged ? '1' : '0.4');
         }
 
-        // --- SPELLS & COMBAT ---
         function startCasting(spellId, type, key) {
             if (castingState.active) return;
             let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0; 
@@ -821,7 +783,7 @@
                 if (playerStats.hp < playerStats.maxHp) {
                     playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + burstGain); 
                     spawnGlowEffect(0xff0000); flashScreen('red'); instantSuccess = true; 
-                    if(socket) socket.emit('playerHealed', { amount: burstGain }); // NEW: Notify server of heal burst
+                    if(socket) socket.emit('playerHealed', { amount: burstGain });
                 } 
             } 
             else if (type === 2) { 
@@ -854,7 +816,7 @@
                 if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { 
                     playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); 
                     spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); 
-                    if(socket) socket.emit('playerHealed', { amount: gain }); // NEW: Notify server of heal tick
+                    if(socket) socket.emit('playerHealed', { amount: gain });
                 } 
             } 
             else if (type === 2) { 
@@ -878,7 +840,7 @@
             if (playerStats.hp >= playerStats.maxHp) return;
             playerStats.mana -= SETTINGS.healCost; 
             playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + SETTINGS.healAmount);
-            if(socket) socket.emit('playerHealed', { amount: SETTINGS.healAmount }); // NEW: Notify server of instant heal
+            if(socket) socket.emit('playerHealed', { amount: SETTINGS.healAmount });
             lastHealTime = now; addToLog(`Curato di ${SETTINGS.healAmount} HP`, "heal"); createFloatingText(playerMesh.position.clone().add(new THREE.Vector3(0,5,0)), `+${SETTINGS.healAmount}`, '#00ff00');
             spawnGlowEffect(0x00ff00); flashScreen('green'); playSound('heal'); updateUI(); 
         }
@@ -890,7 +852,6 @@
             playerStats.stamina -= SETTINGS.whirlwindCost; lastWhirlwindTime = now; if (!canJump) return; velocity.y += 150; canJump = false; isWhirlwinding = true; setTimeout(() => { isWhirlwinding = false; }, 500);
             spawnParticles(playerMesh.position, 0xffffff, 30, 40, 0.5, false); addToLog("TURBINE ATTIVATO!", "spell-cast"); playSound('swing');
             
-            // Melee Hit Detection for Whirlwind
             if (socket) socket.emit('playerAttack', { type: 'whirlwind', origin: playerMesh.position, direction: new THREE.Vector3() });
             Object.values(otherPlayers).forEach((e) => {
                 if (e.mesh.position.distanceTo(playerMesh.position) < SETTINGS.whirlwindRadius) {
@@ -957,63 +918,56 @@
             proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
+        
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
-                const nextPos = p.position.clone().add(move);
+                
+                // Skip invalid/zero movement to prevent raycaster crash
+                if (move.lengthSq() < 0.000001) continue; 
 
+                const nextPos = p.position.clone().add(move);
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
                 
-                // --- Collision Check ---
-                
-                // Create a ray from current position to next position
-                const direction = p.userData.velocity.clone().normalize();
-                
-                // Create a simple raycaster starting from the current projectile position
-                // The length of the ray is slightly more than the distance moved in this frame
-                const raycaster = new THREE.Raycaster(p.position, direction, 0, move.length() + 0.1); 
-                const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
-                
-                // Process hits
-                if (intersects.length > 0) {
-                    hit = true;
-                    hitPoint = intersects[0].point;
-
-                    let currentObj = intersects[0].object;
-                    // Find the main player mesh object that was hit
-                    while(currentObj) { 
-                        const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
-                        if(target) { hitTarget = target; break; }
-                        currentObj = currentObj.parent;
-                    }
-                }
-                
-                // Collision Check for Projectiles I Fired (isMine: true) against Opponent
+                // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    if (hitTarget) {
-                        let dmg = 0;
-                        if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
-                        else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
-                        // Spell 2 (Push) deals no damage on hit.
+                    collisionRaycaster.set(p.position, p.userData.velocity.clone().normalize());
+                    collisionRaycaster.far = move.length() + 0.1;
+                    
+                    const intersects = collisionRaycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
 
-                        if (socket) {
-                            const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
-                            // Apply physical effects if hit target is player
-                            if (p.userData.type === 2) { // Push
-                                // Send push instruction to the server/other player to apply physics locally
-                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone() });
-                                addToLog(`Colpito ${hitTarget.username} con Onda d'Urto!`, "spell-cast");
-                            } else if (p.userData.type === 3) { // Fireball
-                                // Send Knockback instruction along with damage
-                                socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), force: SETTINGS.fireballUpForce, damage: dmg });
-                                addToLog(`Colpito ${hitTarget.username} con Palla di Fuoco! -${dmg} HP`, "dmg-dealt");
-                            } else if (p.userData.type === 1) { // Bolt
-                                socket.emit('playerHit', { damage: dmg, targetId: targetId });
-                                addToLog(`Colpito ${hitTarget.username} con Dardo! -${dmg} HP`, "dmg-dealt");
+                    if (intersects.length > 0) {
+                        hit = true;
+                        hitPoint = intersects[0].point;
+                        
+                        let currentObj = intersects[0].object;
+                        while(currentObj) { 
+                            const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
+                            if(target) { hitTarget = target; break; }
+                            currentObj = currentObj.parent;
+                        }
+                        
+                        if (hitTarget) {
+                            let dmg = 0;
+                            if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
+                            else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
+                            
+                            if (socket) {
+                                const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
+                                if (p.userData.type === 2) { 
+                                    socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone() });
+                                    addToLog(`Colpito ${hitTarget.username} con Onda d'Urto!`, "spell-cast");
+                                } else if (p.userData.type === 3) { 
+                                    socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), force: SETTINGS.fireballUpForce, damage: dmg });
+                                    addToLog(`Colpito ${hitTarget.username} con Palla di Fuoco! -${dmg} HP`, "dmg-dealt");
+                                } else if (p.userData.type === 1) { 
+                                    socket.emit('playerHit', { damage: dmg, targetId: targetId });
+                                    addToLog(`Colpito ${hitTarget.username} con Dardo! -${dmg} HP`, "dmg-dealt");
+                                }
                             }
                         }
                     }
@@ -1022,46 +976,32 @@
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
                     const distanceToPlayer = nextPos.distanceTo(playerMesh.position);
-                    
                     if (distanceToPlayer < 6) {
                          hit = true; hitPoint = playerMesh.position;
-                         let dmg = 0;
-                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
-                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
-                         
-                         if (dmg > 0 && socket) {
-                             // I tell server I took damage
-                             socket.emit('playerHit', { damage: dmg, targetId: myId });
-                             addToLog(`Colpito! -${dmg} HP`, "dmg-taken"); playSound('hit');
+                         // Physics effect locally for enemy spells
+                         if (p.userData.type === 2) { 
+                             const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
+                             velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
+                             playerStats.isFalling = true;
+                         } else if (p.userData.type === 3) { 
+                             velocity.y += SETTINGS.fireballUpForce;
+                             playerStats.isFalling = true;
                          }
-                        
-                        // Apply Knockback/Physics for spells (LOCAL EFFECT)
-                        if (p.userData.type === 2) { // Push
-                            const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
-                            velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
-                            playerStats.isFalling = true;
-                        } else if (p.userData.type === 3) { // Fireball Jump
-                            velocity.y += SETTINGS.fireballUpForce; // Jump up
-                            playerStats.isFalling = true;
-                        }
+                         // Damage is handled by sender now (Attacker Authority), so we don't emit hit from here to avoid double damage
+                         // We just play sound
+                         playSound('hit');
                     }
                 }
 
-                // Check collision with ground (for everyone)
                 if(!hit && nextPos.y <= 0) { 
-                    hit=true; 
-                    hitPoint.y = 0; 
-                    p.position.y = 0;
-
-                    // Add explosive effect locally if type 2 or 3 (mine or enemy)
+                    hit=true; hitPoint.y = 0; p.position.y = 0;
                     if (p.userData.type === 2 && p.userData.isMine) {
                         spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
-                        // Apply self-rocket jump
                         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
                         let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
                         velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false;
                         addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
-                    } else if (p.userData.type === 3) { // Explosion visual for remote fireball hitting ground
+                    } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
                     }
                 }
@@ -1076,15 +1016,14 @@
                 }
             }
         }
+
         function swingSword() {
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
             
-            // Notify other player of MELEE attack
             if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
             
-            // Melee Hit Check
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
@@ -1116,7 +1055,6 @@
             if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             let speed = SETTINGS.speed;
             
-            // Check if player is falling (used for animation state)
             playerStats.isFalling = velocity.y < -10; 
 
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
@@ -1203,12 +1141,14 @@
         function animate() {
             requestAnimationFrame(animate);
             const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
-            if (!playerStats.isDead) { // Allow update only if not dead
-                updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
-                updateConversions(delta); updateFloatingTexts(delta);
-                updateSwordAnimation(delta); updateCamera(); 
+            if (!playerStats.isDead) { 
+                try {
+                    updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
+                    updateConversions(delta); updateFloatingTexts(delta);
+                    updateSwordAnimation(delta); updateCamera(); 
+                } catch(e) { console.error(e); }
             }
-            updateAnimations(delta); // Run animations even when dead for fall effect
+            updateAnimations(delta); 
             updateUI(); renderer.render(scene, camera);
         }
         init();
