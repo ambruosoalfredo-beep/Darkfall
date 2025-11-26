@@ -44,10 +44,13 @@
         .key-label { position: absolute; top: 2px; right: 4px; font-size: 11px; color: #ccc; font-weight: bold; text-shadow: 1px 1px 0 #000; z-index: 10; font-family: monospace; }
         .spell-icon { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 24px; z-index: 1; background: radial-gradient(circle, #333 0%, #111 100%); line-height: 1; }
         .conv-icon { font-size: 14px; font-weight: bold; display: block; text-shadow: 1px 1px 0 #000; }
+        .plus-red { color: #ff5555; } .minus-yellow { color: #ffd700; } .plus-blue { color: #5555ff; } .minus-red { color: #ff5555; } .plus-yellow { color: #ffd700; } .minus-blue { color: #5555ff; }
         .cooldown-overlay { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(0, 0, 0, 0.7); z-index: 5; pointer-events: none; transition: height 0.1s linear; }
         
         .slot-q .spell-icon { color: #fff; text-shadow: 0 0 5px cyan; }
         .slot-1 .spell-icon { color: #00ffff; } .slot-2 .spell-icon { color: #ffffff; } .slot-3 .spell-icon { color: #ff6600; } .slot-4 .spell-icon { color: #aa00ff; } .slot-r .spell-icon { color: #00ff00; }
+        /* FIX UI ICONS COLORS */
+        #slot-5 .spell-icon, #slot-6 .spell-icon, #slot-7 .spell-icon { color: white; }
 
         #cast-bar-container { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); width: 200px; height: 16px; background: #222; border: 1px solid #777; display: none; z-index: 40; border-radius: 4px; overflow: hidden; }
         #cast-bar-fill { width: 0%; height: 100%; background: #ffd700; box-shadow: 0 0 10px #ffd700; transition: width 0.05s linear; }
@@ -75,7 +78,7 @@
         .close-modal { margin-top: 15px; width: 100%; background: #444; border: none; color: white; padding: 8px; cursor: pointer; }
         .close-modal:hover { background: #555; }
         
-        #login-modal { display: block; z-index: 300; }
+        #login-modal { display: none; z-index: 300; }
         #login-input { background: #333; border: 1px solid #555; color: #fff; padding: 10px; font-size: 16px; width: 80%; margin-bottom: 10px; text-align: center; }
         #connection-status { position: absolute; top: 10px; right: 10px; color: lime; font-family: monospace; z-index: 101; font-weight: bold; }
     </style>
@@ -175,14 +178,29 @@
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
         const SETTINGS = { speed: 600.0, sprintMulti: 1.6, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 600.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 400.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
-        // FIX: Added missing global variable declaration for instructionsModal
         const instructionsModal = document.getElementById('instructions-modal');
+        const loginModal = document.getElementById('login-modal');
 
         // --- LOGIN LOGIC ---
+        function checkLogin() {
+            const savedName = localStorage.getItem('darkfall_username');
+            if (savedName) {
+                myUsername = savedName;
+                loginModal.style.display = 'none';
+                instructionsModal.style.display = 'block';
+                initMultiplayer();
+            } else {
+                loginModal.style.display = 'block';
+            }
+        }
+
         document.getElementById('btn-login').addEventListener('click', () => {
             const inputName = document.getElementById('login-input').value.trim();
-            if(inputName.length > 0) myUsername = inputName;
-            document.getElementById('login-modal').style.display = 'none';
+            if(inputName.length > 0) {
+                myUsername = inputName;
+                localStorage.setItem('darkfall_username', myUsername);
+            }
+            loginModal.style.display = 'none';
             instructionsModal.style.display = 'block';
             initMultiplayer();
         });
@@ -229,7 +247,7 @@
                         const p = otherPlayers[playerInfo.id];
                         p.mesh.userData.targetPos = playerInfo.position;
                         p.mesh.userData.targetRot = playerInfo.rotation;
-                        p.mesh.userData.animState = playerInfo.animState; // Sync Animation State
+                        p.mesh.userData.animState = playerInfo.animState; 
                         
                         if(p.mesh.userData.weaponMode !== playerInfo.weaponMode) {
                             p.mesh.userData.weaponMode = playerInfo.weaponMode;
@@ -240,8 +258,21 @@
 
                 socket.on('enemyAttacked', (data) => {
                     if (otherPlayers[data.id]) {
-                        // Visualizza proiettile nemico partendo dalla posizione corretta
-                        spawnEnemyProjectile(data.origin, data.direction, data.type);
+                        if (data.type === 'melee') {
+                            // Trigger remote melee animation
+                            otherPlayers[data.id].mesh.userData.isAttacking = true;
+                            otherPlayers[data.id].mesh.userData.attackTimer = 0;
+                            playSound('swing');
+                        } else if (data.type === 'whirlwind') {
+                            // Trigger remote whirlwind
+                            otherPlayers[data.id].mesh.userData.isWhirlwinding = true;
+                            setTimeout(() => { 
+                                if(otherPlayers[data.id]) otherPlayers[data.id].mesh.userData.isWhirlwinding = false; 
+                            }, 500);
+                            playSound('swing');
+                        } else {
+                            spawnEnemyProjectile(data.origin, data.direction, data.type);
+                        }
                     }
                 });
                 
@@ -251,7 +282,6 @@
                         updateUI();
                         flashScreen('red');
                     } else if (otherPlayers[data.id]) {
-                        // Aggiorna la barra della vita sopra la testa del nemico
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp);
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false);
                     }
@@ -287,7 +317,7 @@
         loadLocal();
         function saveKeybinds(binds) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(binds)); } catch(e) {} }
 
-        // --- KEYBINDING UI FUNCTIONS (RESTORED) ---
+        // --- KEYBINDING UI ---
         const KEY_NAMES_MAP = {
             MOVE_FORWARD: "Avanti", MOVE_LEFT: "Sinistra", MOVE_BACKWARD: "Indietro", MOVE_RIGHT: "Destra",
             JUMP: "Salto", SPRINT: "Scatto", WEAPON_SWITCH: "Cambia/Whirlwind",
@@ -353,6 +383,9 @@
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
             window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+            
+            checkLogin();
+            
             toggleWeapon(true); updateActionBarUI(); initKeybindUI(); 
         }
 
@@ -374,11 +407,11 @@
             staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff); // Attach to arm
             mesh.position.set(info.position.x, info.position.y, info.position.z);
             
-            // NAME AND HEALTH BAR
+            // Name and Health
             const label = createPlayerLabel(info.username);
             label.position.y = 14;
             mesh.add(label);
-            mesh.userData.hpBar = label.userData.hpBar; // Reference to scale it later
+            mesh.userData.hpBar = label.userData.hpBar; 
 
             scene.add(mesh);
             otherPlayers[info.id] = { 
@@ -390,8 +423,6 @@
 
         function createPlayerLabel(name) {
             const group = new THREE.Group();
-            
-            // 1. Name Text
             const canvas = document.createElement('canvas'); 
             const ctx = canvas.getContext('2d');
             canvas.width = 256; canvas.height = 64;
@@ -403,21 +434,17 @@
             sprite.scale.set(6, 1.5, 1);
             group.add(sprite);
 
-            // 2. Health Bar Background
             const bgGeo = new THREE.PlaneGeometry(5, 0.5);
             const bgMat = new THREE.MeshBasicMaterial({ color: 0x330000 });
             const bg = new THREE.Mesh(bgGeo, bgMat);
             bg.position.y = 1.2;
             group.add(bg);
 
-            // 3. Health Bar Foreground
             const fgGeo = new THREE.PlaneGeometry(5, 0.5);
             const fgMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
             const fg = new THREE.Mesh(fgGeo, fgMat);
-            fg.position.y = 1.2; 
-            fg.position.z = 0.01; // Slightly in front
-            // Pivot hack to scale from left
-            fg.geometry.translate(2.5, 0, 0); // Center geo
+            fg.position.y = 1.2; fg.position.z = 0.01; 
+            fg.geometry.translate(2.5, 0, 0); 
             fg.position.x = -2.5; 
             group.add(fg);
             
@@ -437,7 +464,8 @@
             if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; }
         }
         function updateOpponentWeaponVisuals(mesh, mode) {
-            // To be implemented for polish
+            // Simplification: in melee mode, maybe hide staff or show sword
+            // For now, just assume staff is always there
         }
 
         // --- LOCAL PLAYER ---
@@ -590,23 +618,47 @@
             
             // --- Remote Players Animation Sync ---
             Object.values(otherPlayers).forEach(p => {
-                if(p.mesh.userData.targetPos) p.mesh.position.lerp(p.mesh.userData.targetPos, 0.1);
-                if(p.mesh.userData.targetRot) p.mesh.rotation.set(p.mesh.userData.targetRot.x, p.mesh.userData.targetRot.y, p.mesh.userData.targetRot.z);
+                const mesh = p.mesh;
+                if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.1);
+                if(mesh.userData.targetRot) mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
                 
-                const state = p.mesh.userData.animState;
+                const state = mesh.userData.animState;
                 const limbs = p.limbs;
-                
-                if (state === 'run' || state === 'walk') {
-                    const speed = state === 'run' ? 8 : 4;
-                    const angle = Math.sin(time * speed);
-                    limbs.legL.rotation.x = angle; limbs.legR.rotation.x = -angle;
-                    limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
-                } else {
-                    limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
-                    limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
+                let isEnemyAttacking = false;
+
+                // WHIRLWIND SYNC
+                if (mesh.userData.isWhirlwinding) {
+                    mesh.rotation.y += delta * 20;
+                    limbs.armR.rotation.x = -Math.PI/2; limbs.armL.rotation.x = -Math.PI/2;
+                    return;
+                }
+
+                // MELEE ATTACK SYNC
+                if (mesh.userData.isAttacking) {
+                    mesh.userData.attackTimer += delta * 15;
+                    if (mesh.userData.attackTimer > Math.PI) {
+                        mesh.userData.isAttacking = false;
+                    } else {
+                        isEnemyAttacking = true;
+                        const progress = mesh.userData.attackTimer / Math.PI;
+                        limbs.armR.rotation.x = -Math.PI/4; // Lift
+                        // Add some sweep logic if weapon visible
+                    }
+                }
+
+                if (!isEnemyAttacking) {
+                    if (state === 'run' || state === 'walk') {
+                        const speed = state === 'run' ? 8 : 4;
+                        const angle = Math.sin(time * speed);
+                        limbs.legL.rotation.x = angle; limbs.legR.rotation.x = -angle;
+                        limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
+                    } else {
+                        limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
+                        limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
+                    }
                 }
                 // Ensure label faces camera
-                if(p.mesh.userData.hpBar) p.mesh.userData.hpBar.parent.lookAt(camera.position);
+                if(mesh.userData.hpBar) mesh.userData.hpBar.parent.lookAt(camera.position);
             });
         }
 
@@ -712,6 +764,16 @@
             if (playerStats.stamina < SETTINGS.whirlwindCost) { addToLog("Stamina insufficiente!", "#555"); return; }
             playerStats.stamina -= SETTINGS.whirlwindCost; lastWhirlwindTime = now; if (!canJump) return; velocity.y += 150; canJump = false; isWhirlwinding = true; setTimeout(() => { isWhirlwinding = false; }, 500);
             spawnParticles(playerMesh.position, 0xffffff, 30, 40, 0.5, false); addToLog("TURBINE ATTIVATO!", "spell-cast"); playSound('swing');
+            
+            // Melee Hit Detection for Whirlwind
+            if (socket) socket.emit('playerAttack', { type: 'whirlwind', origin: playerMesh.position, direction: new THREE.Vector3() });
+            Object.values(otherPlayers).forEach((e) => {
+                if (e.mesh.position.distanceTo(playerMesh.position) < SETTINGS.whirlwindRadius) {
+                    if (socket) socket.emit('playerHit', { damage: SETTINGS.whirlwindDmg, targetId: Object.keys(otherPlayers).find(key => otherPlayers[key] === e) });
+                    // Push effect locally for feedback (optional, real physics sync is harder without authoritative server)
+                }
+            });
+
             updateUI();
         }
         function spawnStoneSpikes(target, isEnemy = false) {
@@ -782,9 +844,16 @@
                          hit = true; hitPoint = playerMesh.position;
                          let dmg = (p.userData.type===1)?20:(p.userData.type===3)?50:0;
                          if (dmg > 0 && socket) {
-                             // I tell server I took damage
                              socket.emit('playerHit', { damage: dmg, targetId: myId });
                              addToLog(`Colpito! -${dmg} HP`, "dmg-taken"); playSound('hit');
+                             
+                             // Apply Knockback/Physics for spells
+                             if (p.userData.type === 2) { // Push
+                                 const pushDir = new THREE.Vector3().subVectors(playerMesh.position, p.position).normalize();
+                                 velocity.add(pushDir.multiplyScalar(SETTINGS.pushForce));
+                             } else if (p.userData.type === 3) { // Fireball Jump
+                                 velocity.y += 400; // Jump up
+                             }
                          }
                     }
                 }
@@ -796,6 +865,17 @@
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
+            if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
+            
+            // Melee Hit Check
+            const origin = playerMesh.position.clone(); 
+            const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
+            Object.entries(otherPlayers).forEach(([id, p]) => {
+                const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
+                if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
+                    if (socket) socket.emit('playerHit', { damage: SETTINGS.meleeDmg, targetId: id });
+                }
+            });
         }
         function updateSwordAnimation(delta) {
             if (isWhirlwinding) {
