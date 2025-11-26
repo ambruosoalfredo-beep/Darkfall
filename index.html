@@ -183,14 +183,12 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        // Updated SETTINGS: fireballUpForce is increased to 1100 for air combos
-        const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
+        const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 10, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
         const instructionsModal = document.getElementById('instructions-modal');
         const loginModal = document.getElementById('login-modal');
         const changeNameBtn = document.getElementById('change-name-btn');
         
-        // GLOBAL RAYCASTER FOR OBSTACLES ONLY (OPTIMIZATION)
         const obstacleRaycaster = new THREE.Raycaster();
 
         function checkLogin() {
@@ -243,7 +241,7 @@
                     document.getElementById('connection-status').innerText = "CONNESSO: " + myUsername;
                     myId = socket.id;
                     socket.emit('joinGame', { username: myUsername });
-                    socket.emit('requestPosition'); // FORCE SYNC
+                    socket.emit('requestPosition'); 
                 });
 
                 socket.on('disconnect', () => {
@@ -301,6 +299,7 @@
                         p.mesh.userData.targetPos = playerInfo.position;
                         p.mesh.userData.targetRot = playerInfo.rotation;
                         p.mesh.userData.animState = playerInfo.animState; 
+                        
                         if(p.mesh.userData.weaponMode !== playerInfo.weaponMode) {
                             p.mesh.userData.weaponMode = playerInfo.weaponMode;
                             updateOpponentWeaponVisuals(p.mesh, playerInfo.weaponMode);
@@ -321,7 +320,14 @@
                             }, 500);
                             playSound('swing');
                         } else if (data.type === 'spikes') {
-                            spawnStoneSpikes(data.origin, false); // Show remote spikes
+                            // FIX: Sticky Spikes
+                            if (data.targetId === myId) {
+                                spawnStoneSpikes(playerMesh, true); // Attach to ME
+                            } else if (otherPlayers[data.targetId]) {
+                                spawnStoneSpikes(otherPlayers[data.targetId].mesh, true); // Attach to remote player
+                            } else {
+                                spawnStoneSpikes(data.origin, false); // Ground hit
+                            }
                         } else {
                             spawnEnemyProjectile(data.origin, data.direction, data.type);
                         }
@@ -331,17 +337,14 @@
                 socket.on('playerPushed', (data) => {
                     if (data.targetId === myId) {
                         if (data.force) {
-                            // VERTICAL LAUNCH (Overwrite velocity)
                             velocity.y = data.force;
                         } else {
-                            // Horizontal push
                             const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z);
                             const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
                             velocity.add(dir.multiplyScalar(SETTINGS.pushForce));
                         }
                         playerStats.isFalling = true;
                         canJump = false;
-                        // Lift off ground slightly to ensure physics engine treats us as airborne
                         playerMesh.position.y += 0.2;
                     }
                 });
@@ -368,7 +371,6 @@
                         otherPlayers[data.id].mesh.userData.isDead = true;
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill");
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true);
-                        // Remove body after 3 seconds
                         setTimeout(() => {
                              if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) {
                                  removeOtherPlayer(data.id);
@@ -479,8 +481,20 @@
             const armL = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3,6,0); mesh.add(armL);
             const armR = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3,6,0); mesh.add(armR);
             
+            // Create Staff (hidden by default depending on mode)
             const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,22), new THREE.MeshStandardMaterial({color:0x3e2723}));
-            staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff);
+            staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; 
+            armR.add(staff);
+
+            // Create Sword (hidden by default)
+            const swordGroup = new THREE.Group();
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 18, 0.2), new THREE.MeshStandardMaterial({color:0xecf0f1})); blade.position.y=10; swordGroup.add(blade);
+            const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
+            const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
+            swordGroup.position.set(0,-5,0.5); swordGroup.rotation.x=Math.PI/2;
+            swordGroup.visible = false;
+            armR.add(swordGroup);
+
             mesh.position.set(info.position.x, info.position.y, info.position.z);
             
             const label = createPlayerLabel(info.username);
@@ -494,6 +508,7 @@
                 username: info.username, 
                 mesh: mesh, 
                 limbs: { armL, armR, legL, legR, head: headGroup, torso },
+                weaponMeshes: { staff: staff, sword: swordGroup },
                 isAttacking: false,
                 attackTimer: 0,
                 isWhirlwinding: false,
@@ -543,7 +558,13 @@
         function removeOtherPlayer(id) {
             if (otherPlayers[id]) { scene.remove(otherPlayers[id].mesh); delete otherPlayers[id]; }
         }
-        function updateOpponentWeaponVisuals(mesh, mode) {}
+        
+        function updateOpponentWeaponVisuals(p, mode) {
+            if (p.weaponMeshes) {
+                p.weaponMeshes.staff.visible = (mode === 'ranged');
+                p.weaponMeshes.sword.visible = (mode === 'melee');
+            }
+        }
 
         function createPlayer() {
             playerMesh = new THREE.Group();
@@ -681,6 +702,7 @@
                 return;
             }
 
+            // LOCAL ANIMATION LOGIC
             if (weaponMode === 'ranged') {
                 playerLimbs.armR.rotation.x = -Math.PI / 2 + Math.sin(time) * 0.05 - (isAttacking ? Math.sin(attackTimer * 2) * 0.5 : 0); 
                 playerLimbs.armR.rotation.z = 0;
@@ -688,24 +710,33 @@
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
                 playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
-                if (!canJump && !playerStats.isFalling) { 
-                    playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
-                    if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; playerLimbs.torso.rotation.x = 0.2; 
-                } else if (isMoving) { 
+                // Melee Mode Animations
+                if (isMoving) { 
                     const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
                     playerLimbs.legL.rotation.x = angle * legAmp; playerLimbs.legR.rotation.x = -angle * legAmp; 
-                    playerLimbs.armL.rotation.x = -angle * armAmp; if(!isAttacking && !isWhirlwinding) playerLimbs.armR.rotation.x = angle * armAmp;
+                    
+                    // Only animate arms if NOT attacking
+                    if (!isAttacking && !isWhirlwinding) {
+                        playerLimbs.armL.rotation.x = -angle * armAmp; 
+                        playerLimbs.armR.rotation.x = angle * armAmp;
+                    }
+
                     playerLimbs.torso.rotation.x = isSprintingActive ? 0.3 : 0.1; 
                     playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.rotation.x = isSprintingActive ? 0.3 : 0.1; });
                     playerMesh.position.y = 6 + Math.abs(Math.cos(time * speedMulti)) * (isSprintingActive ? 0.3 : 0.1);
                 } else {
-                    playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; playerLimbs.armL.rotation.x = Math.sin(time)*0.05; 
-                    if(!isAttacking && !isWhirlwinding) playerLimbs.armR.rotation.x = Math.cos(time)*0.05;
+                    // Idle
+                    playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; 
+                    if(!isAttacking && !isWhirlwinding) {
+                        playerLimbs.armL.rotation.x = Math.sin(time)*0.05; 
+                        playerLimbs.armR.rotation.x = Math.cos(time)*0.05;
+                    }
                     playerLimbs.torso.rotation.x = 0; playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.rotation.x = 0; });
                 }
             }
             
+            // --- Remote Players Animation Sync ---
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
                 if (p.isDead) {
@@ -716,7 +747,7 @@
                     return;
                 }
                 
-                if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); // Increased lerp speed
+                if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); 
                 if(mesh.userData.targetRot) mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
                 
                 const state = mesh.userData.animState;
@@ -819,7 +850,6 @@
             const now = performance.now();
             if (now - lastConversionTime < SETTINGS.conversionCooldown) { addToLog("Ricarica...", "#aaa"); return; }
             
-            // No burst logic anymore
             playSound('heal'); 
             activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); 
             lastConversionTime = now; 
@@ -839,7 +869,6 @@
         function applyConversionTick(type) {
              const cost = 5; const gain = 5;
             if (type === 1) { 
-                // Stamina -> HP (FIXED: No burst logic)
                 if (playerStats.stamina >= cost && playerStats.hp < playerStats.maxHp) { 
                     playerStats.stamina -= cost; playerStats.hp = Math.min(playerStats.maxHp, playerStats.hp + gain); 
                     spawnParticles(playerMesh.position, 0xff0000, 5, 10, 0.2, false); 
@@ -888,16 +917,31 @@
 
             updateUI();
         }
-        function spawnStoneSpikes(target, isEnemy = false) {
-            const group = new THREE.Group(); const material = new THREE.MeshLambertMaterial({ color: 0x888888 }); 
+        function spawnStoneSpikes(target, isSticky = false) {
+            const group = new THREE.Group(); 
+            const material = new THREE.MeshLambertMaterial({ color: 0x888888 }); 
             for(let i=0; i<8; i++) { 
                 const height = 8 + random() * 4; const geo = new THREE.ConeGeometry(1.5, height, 6); const mesh = new THREE.Mesh(geo, material);
                 const angle = random() * Math.PI * 2; const radius = 4 + random() * 2; 
                 mesh.position.set(Math.cos(angle)*radius, height/2 - 2, Math.sin(angle)*radius);
                 mesh.rotation.x = (random() - 0.5) * 0.8; mesh.rotation.z = (random() - 0.5) * 0.8; group.add(mesh);
             }
-            if (isEnemy && target) { target.add(group); group.position.set(0, 0, 0); } else { scene.add(group); group.position.copy(target); }
-            setTimeout(() => { if(isEnemy && target) target.remove(group); else scene.remove(group); group.children.forEach(c => { c.geometry.dispose(); }); material.dispose(); }, 1500);
+            if (isSticky && target) { 
+                // Sticky mode: add to player mesh
+                target.add(group); 
+                group.position.set(0, 0, 0); 
+            } else { 
+                // World position mode
+                scene.add(group); 
+                group.position.copy(target instanceof THREE.Vector3 ? target : target.position); 
+            }
+            
+            setTimeout(() => { 
+                if (isSticky && target) target.remove(group); 
+                else scene.remove(group); 
+                group.children.forEach(c => { c.geometry.dispose(); }); 
+                material.dispose(); 
+            }, 1500);
         }
         function updateActionBarUI() { document.querySelectorAll('.action-slot').forEach(el => el.classList.remove('active')); if (weaponMode === 'ranged') document.getElementById(`slot-${currentSpell}`).classList.add('active'); else document.getElementById('slot-q').classList.add('active'); }
         function updateStaffColor(id) { if(!staffContainer || !staffContainer.userData.gem) return; const colors = [0xffffff, 0x00ffff, 0xffffff, 0xff6600, 0xaa00ff]; staffContainer.userData.gem.material.color.setHex(colors[id]); }
@@ -910,14 +954,19 @@
                 let hitPoint = intersects[0].point; let obj = intersects[0].object; let enemyFound = null; let currentObj = obj;
                 while(currentObj) { if(Object.values(otherPlayers).find(p => p.mesh === currentObj)) { enemyFound = currentObj; break; } currentObj = currentObj.parent; }
                 if(enemyFound) {
+                    // Sticky spikes on enemy
                     spawnStoneSpikes(enemyFound, true); 
                     const hitId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === enemyFound);
                     if(hitId && socket) {
                         socket.emit('playerHit', { damage: SETTINGS.beamDmg, targetId: hitId }); 
-                        socket.emit('playerAttack', { type: 'spikes', origin: enemyFound.position, direction: new THREE.Vector3(0,1,0) }); // VISUAL FIX
+                        socket.emit('playerAttack', { type: 'spikes', origin: new THREE.Vector3(), direction: new THREE.Vector3(), targetId: hitId });
                     }
                     addToLog("Spuntoni di Pietra colpiti!", "spell-cast"); playSound('hit');
-                } else { spawnStoneSpikes(hitPoint, false); }
+                } else { 
+                    // Miss, spawn on ground
+                    spawnStoneSpikes(hitPoint, false); 
+                    if (socket) socket.emit('playerAttack', { type: 'spikes', origin: hitPoint, direction: new THREE.Vector3() });
+                }
             }
             playSound('shoot_fire');
         }
@@ -955,45 +1004,29 @@
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
-                
-                // Skip invalid/zero movement to prevent raycaster crash
                 if (move.lengthSq() < 0.000001) continue; 
-
                 const nextPos = p.position.clone().add(move);
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
                 
-                // Collision Check for Projectiles I Fired (isMine: true)
                 if (p.userData.isMine) {
-                    // CYLINDER HITBOX LOGIC (Improved)
                     Object.values(otherPlayers).forEach(op => {
-                        // Distance on XZ plane (flat)
                         const dx = p.position.x - op.mesh.position.x;
                         const dz = p.position.z - op.mesh.position.z;
                         const distXZ = Math.sqrt(dx*dx + dz*dz);
-                        // Height difference
                         const dy = p.position.y - op.mesh.position.y;
-
-                        // Hitbox: Radius 5.0 (generous), Height 15.0 (covers head to toe)
-                        if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
+                        if (distXZ < 6.0 && dy > 0 && dy < 15.0) {
                             hit = true;
                             hitTarget = op.mesh;
                             hitPoint = p.position.clone();
                         }
                     });
-
-                    // Raycast for obstacles only
                     if (!hit) {
                         obstacleRaycaster.set(p.position, p.userData.velocity.clone().normalize());
                         obstacleRaycaster.far = move.length() + 0.1;
                         const intersects = obstacleRaycaster.intersectObjects([...obstacles], true);
-                        if (intersects.length > 0) {
-                            hit = true;
-                            hitPoint = intersects[0].point;
-                        }
+                        if (intersects.length > 0) { hit = true; hitPoint = intersects[0].point; }
                     }
-                        
-                    // If I hit the opponent, notify the server for damage
                     if (hitTarget) {
                         let dmg = 0;
                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
@@ -1002,7 +1035,6 @@
 
                         if (socket) {
                             const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
-                            // Only send hit event once
                             if (p.userData.type === 2) { 
                                 socket.emit('playerPushed', { targetId: targetId, pushOrigin: p.position.clone(), damage: dmg }); 
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Onda d'Urto!`, "spell-cast");
@@ -1016,42 +1048,38 @@
                         }
                     }
                 } 
-                
-                // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
                     const dx = p.position.x - playerMesh.position.x;
                     const dz = p.position.z - playerMesh.position.z;
                     const distXZ = Math.sqrt(dx*dx + dz*dz);
                     const dy = p.position.y - playerMesh.position.y;
-                    
-                    // My own hitbox logic (Cylinder)
-                    if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
+                    if (distXZ < 6.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
-                         // No physics here, wait for server event to apply knockback to prevent desync
                          playSound('hit');
                     }
                 }
 
-                // Check collision with ground
+                // Updated Spell 2 Logic
                 if(!hit && nextPos.y <= 0) { 
-                    hit=true; 
-                    hitPoint.y = 0; 
-                    p.position.y = 0;
-
-                    // Add explosive effect locally if type 2 or 3 (mine or enemy)
+                    hit=true; hitPoint.y = 0; p.position.y = 0;
                     if (p.userData.type === 2 && p.userData.isMine) {
-                        spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
-                        // Apply self-rocket jump
-                        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
-                        let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
-                        velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); 
+                         // Check distance from player to impact point
+                        const distToImpact = p.position.distanceTo(playerMesh.position);
                         
-                        // FORCE JUMP STATE
-                        canJump = false;
-                        playerStats.isFalling = true; // Allow fly logic
-                        playerMesh.position.y += 0.5; // Unstick from ground
-                        
-                        addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
+                        // Only rocket jump if impact is CLOSE (e.g. < 10 units)
+                        if (distToImpact < 10.0) {
+                            spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
+                            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
+                            let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
+                            velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); 
+                            canJump = false;
+                            playerStats.isFalling = true; 
+                            playerMesh.position.y += 0.5;
+                            addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
+                        } else {
+                             // Just visual explosion if far away
+                             spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
+                        }
                     } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
                     }
@@ -1061,8 +1089,7 @@
                     spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? 15 : 5); 
                     scene.remove(p); projectiles.splice(i, 1); 
                 } else { 
-                    p.position.add(move); 
-                    p.userData.life -= delta; 
+                    p.position.add(move); p.userData.life -= delta; 
                     if (p.userData.life <= 0) { scene.remove(p); projectiles.splice(i, 1); }
                 }
             }
@@ -1071,9 +1098,7 @@
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing');
-            
             if (socket) socket.emit('playerAttack', { type: 'melee', origin: playerMesh.position, direction: new THREE.Vector3() });
-            
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
@@ -1107,8 +1132,6 @@
             if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             let speed = SETTINGS.speed;
             
-            // FIX FALLING LOGIC TO ALLOW KNOCKBACK
-            // If velocity is upward (knockback) OR downward (falling)
             if (velocity.y != 0) playerStats.isFalling = true;
 
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
@@ -1120,9 +1143,7 @@
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
             
-            // FIX GROUND COLLISION: Only stop if falling down (negative velocity)
             if(playerMesh.position.y < 6) { 
-                // If moving down or barely moving, snap to floor
                 if (velocity.y <= 0) {
                     playerMesh.position.y = 6; 
                     velocity.y = 0; 
