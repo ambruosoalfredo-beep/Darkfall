@@ -5,7 +5,7 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server, {
   cors: { origin: "*" },
-  pingTimeout: 5000,
+  pingTimeout: 5000, // Rileva disconnessioni rapidamente
   pingInterval: 10000
 });
 const path = require('path');
@@ -25,6 +25,8 @@ io.on('connection', (socket) => {
 
     socket.on('joinGame', (userData) => {
         if (players[socket.id]) delete players[socket.id];
+        
+        // Limita a 2 giocatori attivi per duello
         if (Object.keys(players).length >= 2) {
             socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
             return;
@@ -40,7 +42,7 @@ io.on('connection', (socket) => {
             position: { x: 0, y: 6, z: 0 },
             rotation: { x: 0, y: 0, z: 0 },
             animState: 'idle',
-            weaponMode: 'ranged', // Default
+            weaponMode: 'ranged',
             isDead: false
         };
 
@@ -81,16 +83,19 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Gestione Fisica/Spinta (Spell 2 e 3)
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
+            // Invia forza fisica al client target
             io.to(targetId).emit('playerPushed', {
                 force: pushData.force,
                 pushOrigin: pushData.pushOrigin
             });
+            // Aggiorna barre vita a tutti
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
@@ -100,11 +105,13 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Danno Diretto (Spell 1, 4, Melee)
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {
             players[targetId].hp -= dmgData.damage;
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
+            
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
@@ -129,11 +136,11 @@ io.on('connection', (socket) => {
     });
 });
 
+// Pulizia ghost players
 setInterval(() => {
     const now = Date.now();
     Object.keys(players).forEach(id => {
         if (lastSeen[id] && (now - lastSeen[id] > 10000)) {
-            console.log('Rimozione giocatore inattivo: ' + id);
             delete players[id];
             delete lastSeen[id];
             io.emit('playerDisconnected', id);

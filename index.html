@@ -6,81 +6,54 @@
     <title>Darkfall Online: 1v1 Arena</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
-        
         #screen-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; opacity: 0; transition: opacity 0.1s ease-out; }
-        
-        .floating-text {
-            position: absolute; pointer-events: none; font-weight: bold; font-family: 'Impact', sans-serif;
-            text-shadow: 2px 2px 0 #000; animation: floatUp 1s forwards; z-index: 60; font-size: 20px;
-        }
+        .floating-text { position: absolute; pointer-events: none; font-weight: bold; font-family: 'Impact', sans-serif; text-shadow: 2px 2px 0 #000; animation: floatUp 1s forwards; z-index: 60; font-size: 20px; }
         @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.5); } }
-
         .top-controls { position: absolute; top: 20px; left: 20px; z-index: 100; display: flex; gap: 10px; }
-        .btn {
-            padding: 8px 16px; color: white; border: 1px solid rgba(255,255,255,0.3); cursor: pointer;
-            font-weight: bold; font-family: inherit; text-transform: uppercase; font-size: 12px;
-            background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); transition: all 0.2s; border-radius: 4px;
-        }
+        .btn { padding: 8px 16px; color: white; border: 1px solid rgba(255,255,255,0.3); cursor: pointer; font-weight: bold; font-family: inherit; text-transform: uppercase; font-size: 12px; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); transition: all 0.2s; border-radius: 4px; }
         .btn:hover { background: rgba(255,255,255,0.1); border-color: white; }
         #reset-btn { border-bottom: 2px solid #4caf50; }
         #keys-btn { border-bottom: 2px solid #ffa000; }
         #audio-btn { border-bottom: 2px solid #00bfff; }
         #change-name-btn { border-bottom: 2px solid #f39c12; }
-
-        #action-bar {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            display: flex; align-items: center; gap: 6px;
-            background: rgba(0, 0, 0, 0.85); padding: 6px; border-radius: 6px;
-            border: 1px solid #444; z-index: 50; box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        }
+        #action-bar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.85); padding: 6px; border-radius: 6px; border: 1px solid #444; z-index: 50; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
         .separator { width: 2px; height: 40px; background: #555; margin: 0 4px; }
-        .action-slot {
-            width: 50px; height: 50px; background: #222; border: 2px solid #555;
-            position: relative; cursor: pointer; border-radius: 4px; overflow: hidden; transition: border-color 0.1s;
-        }
+        .action-slot { width: 50px; height: 50px; background: #222; border: 2px solid #555; position: relative; cursor: pointer; border-radius: 4px; overflow: hidden; transition: border-color 0.1s; }
         .action-slot.active { border-color: #ffd700; box-shadow: 0 0 8px rgba(255, 215, 0, 0.6) inset; }
         .action-slot.channeling { border-color: #fff; box-shadow: 0 0 15px #fff inset; animation: pulse-border 1s infinite; }
         @keyframes pulse-border { 0% { border-color: #fff; box-shadow: 0 0 5px #fff inset; } 50% { border-color: #888; box-shadow: 0 0 15px #fff inset; } 100% { border-color: #fff; box-shadow: 0 0 5px #fff inset; } }
-
         .key-label { position: absolute; top: 2px; right: 4px; font-size: 11px; color: #ccc; font-weight: bold; text-shadow: 1px 1px 0 #000; z-index: 10; font-family: monospace; }
         .spell-icon { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 24px; z-index: 1; background: radial-gradient(circle, #333 0%, #111 100%); line-height: 1; }
         .conv-icon { font-size: 14px; font-weight: bold; display: block; text-shadow: 1px 1px 0 #000; }
         .plus-red { color: #ff5555; } .minus-yellow { color: #ffd700; } .plus-blue { color: #5555ff; } .minus-red { color: #ff5555; } .plus-yellow { color: #ffd700; } .minus-blue { color: #5555ff; }
         .cooldown-overlay { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(0, 0, 0, 0.7); z-index: 5; pointer-events: none; transition: height 0.1s linear; }
-        
         .slot-q .spell-icon { color: #fff; text-shadow: 0 0 5px cyan; }
         .slot-1 .spell-icon { color: #00ffff; } .slot-2 .spell-icon { color: #ffffff; } .slot-3 .spell-icon { color: #ff6600; } .slot-4 .spell-icon { color: #aa00ff; } .slot-r .spell-icon { color: #00ff00; }
         #slot-5 .spell-icon, #slot-6 .spell-icon, #slot-7 .spell-icon { color: white; }
-
         #cast-bar-container { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); width: 200px; height: 16px; background: #222; border: 1px solid #777; display: none; z-index: 40; border-radius: 4px; overflow: hidden; }
         #cast-bar-fill { width: 0%; height: 100%; background: #ffd700; box-shadow: 0 0 10px #ffd700; transition: width 0.05s linear; }
         #cast-bar-fill.ready { background: #00ff00; box-shadow: 0 0 15px #00ff00; }
         #cast-text { position: absolute; top: -22px; width: 100%; text-align: center; color: #ffd700; font-size: 13px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-
         #ui-container { position: absolute; bottom: 100px; left: 20px; width: 250px; color: white; z-index: 10; background: rgba(0, 0, 0, 0.5); padding: 10px; border: 1px solid #444; pointer-events: none; border-radius: 4px; }
         .bar-container { width: 100%; height: 16px; background: #222; margin-bottom: 4px; position: relative; border-radius: 2px; overflow: hidden; }
         .bar { height: 100%; transition: width 0.2s; }
         #hp-bar { background: linear-gradient(90deg, #b71c1c, #d32f2f); } #mana-bar { background: linear-gradient(90deg, #0d47a1, #1976d2); } #stamina-bar { background: linear-gradient(90deg, #f9a825, #fbc02d); } 
         .label { position: absolute; left: 5px; top: 0; font-size: 10px; line-height: 16px; text-shadow: 1px 1px 0 #000; z-index: 2; opacity: 0.8; }
-        
         #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="2" fill="white"/><line x1="0" y1="10" x2="20" y2="10" stroke="white" stroke-width="1"/><line x1="10" y1="0" x2="10" y2="20" stroke="white" stroke-width="1"/></svg>'); transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
         #message { position: absolute; top: 20%; width: 100%; text-align: center; color: #ff3333; font-size: 24px; font-weight: bold; display: none; text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 15; padding: 20px; background: rgba(0,0,0,0.7); }
         #log { position: absolute; top: 60px; right: 10px; width: 300px; height: 200px; overflow: hidden; text-align: right; color: #ccc; font-size: 12px; pointer-events: none; display: flex; flex-direction: column-reverse; z-index: 5; }
         .log-entry { margin-bottom: 2px; text-shadow: 1px 1px 0 #000; background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 2px; display: inline-block; align-self: flex-end;}
-        
+        #login-modal { display: none; z-index: 300; }
+        #login-input { background: #333; border: 1px solid #555; color: #fff; padding: 10px; font-size: 16px; width: 80%; margin-bottom: 10px; text-align: center; }
+        #connection-status { position: absolute; top: 10px; right: 10px; color: lime; font-family: monospace; z-index: 101; font-weight: bold; }
         .modal { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(20, 20, 20, 0.95); border: 1px solid #444; padding: 20px; z-index: 200; color: white; min-width: 400px; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.8); text-align: center; max-height: 80vh; overflow-y: auto; }
         .modal h2 { margin-top: 0; color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
         .key-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding: 8px 0; font-size: 14px; }
         .key-btn { background: #333; color: #ffd700; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: monospace; font-weight: bold; min-width: 80px; }
         .key-btn:hover { background: #444; border-color: #777; }
         .key-btn.listening { background: #d32f2f; color: white; border-color: red; animation: pulse 1s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
         .close-modal { margin-top: 15px; width: 100%; background: #444; border: none; color: white; padding: 8px; cursor: pointer; }
         .close-modal:hover { background: #555; }
-        
-        #login-modal { display: none; z-index: 300; }
-        #login-input { background: #333; border: 1px solid #555; color: #fff; padding: 10px; font-size: 16px; width: 80%; margin-bottom: 10px; text-align: center; }
-        #connection-status { position: absolute; top: 10px; right: 10px; color: lime; font-family: monospace; z-index: 101; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -175,8 +148,7 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        // SLOWER SPEEDS
-        const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 15, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
+        const SETTINGS = { speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, missileSpeed: 900.0, missileDmg: 20, missileCost: 5, pushSpeed: 700.0, pushForce: 900.0, rocketJumpForce: 800.0, pushCost: 15, pushRadius: 20, fireballSpeed: 600.0, fireballUpForce: 1100.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20, beamDmg: 25, beamCost: 5, beamRange: 200, fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, healAmount: 20, healCost: 10, healCooldown: 10000, conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, spikesCooldown: 3000 };
         
         const instructionsModal = document.getElementById('instructions-modal');
         const loginModal = document.getElementById('login-modal');
@@ -230,7 +202,7 @@
                 socket.on('playerPushed', (data) => { 
                     if (data.targetId === myId) { 
                         if (data.force) { velocity.y = data.force; } 
-                        else { const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z); const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize(); velocity.add(dir.multiplyScalar(SETTINGS.pushForce)); velocity.y += 100; } // Added vertical lift to horizontal push
+                        else { const origin = new THREE.Vector3(data.pushOrigin.x, data.pushOrigin.y, data.pushOrigin.z); const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize(); velocity.add(dir.multiplyScalar(SETTINGS.pushForce)); velocity.y += 100; } 
                         playerStats.isFalling = true; canJump = false; playerMesh.position.y += 0.5; 
                     } 
                 });
@@ -467,10 +439,10 @@
                     const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
                     playerLimbs.legL.rotation.x = angle * legAmp; playerLimbs.legR.rotation.x = -angle * legAmp; 
-                    playerLimbs.armL.rotation.x = -angle * armAmp; if(!isAttacking && !isWhirlwinding) playerLimbs.armR.rotation.x = angle * armAmp;
+                    // FIX: Removed manual override of arms when running to allow melee animation blending
+                    if (!isAttacking && !isWhirlwinding) { playerLimbs.armL.rotation.x = -angle * armAmp; playerLimbs.armR.rotation.x = angle * armAmp; }
                     playerLimbs.torso.rotation.x = isSprintingActive ? 0.3 : 0.1; 
                     playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.rotation.x = isSprintingActive ? 0.3 : 0.1; });
-                    playerMesh.position.y = 6 + Math.abs(Math.cos(time * speedMulti)) * (isSprintingActive ? 0.3 : 0.1);
                 } else {
                     playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; 
                     if(!isAttacking && !isWhirlwinding) { playerLimbs.armL.rotation.x = Math.sin(time)*0.05; playerLimbs.armR.rotation.x = Math.cos(time)*0.05; }
@@ -591,7 +563,7 @@
             const now = performance.now();
             if (now - lastConversionTime < SETTINGS.conversionCooldown) { addToLog("Ricarica...", "#aaa"); return; }
             
-            // No burst logic anymore
+            // FIX: NO BURST GAIN
             playSound('heal'); 
             activeConversions.push({ type: type, duration: 5.0, nextTick: 1.0 }); 
             lastConversionTime = now; 
@@ -750,8 +722,8 @@
                         // Height difference
                         const dy = p.position.y - op.mesh.position.y;
 
-                        // Hitbox: Radius 5.0 (generous), Height 15.0 (covers head to toe)
-                        if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
+                        // Hitbox: Radius 8.0 (generous), Height 15.0 (covers head to toe)
+                        if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
                             hit = true;
                             hitTarget = op.mesh;
                             hitPoint = p.position.clone();
@@ -801,9 +773,8 @@
                     const dy = p.position.y - playerMesh.position.y;
                     
                     // My own hitbox logic (Cylinder)
-                    if (distXZ < 5.0 && dy > 0 && dy < 15.0) {
+                    if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
-                         // No physics here, wait for server event to apply knockback to prevent desync
                          playSound('hit');
                     }
                 }
@@ -818,17 +789,13 @@
                     if (p.userData.type === 2 && p.userData.isMine) {
                         spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
                         // Apply self-rocket jump
-                        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
-                        let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
-                        velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); 
-                        
-                        // FORCE JUMP STATE - FIX: This condition check for distance to impact
                         const distToImpact = p.position.distanceTo(playerMesh.position);
-                        if(distToImpact < 8.0) {
-                            canJump = false;
-                            playerStats.isFalling = true; // Allow fly logic
-                            playerMesh.position.y += 0.5; // Unstick from ground
-                            addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
+                        // FIX ROCKET JUMP RADIUS TO 15.0 (Increased from 8.0)
+                        if(distToImpact < 15.0) {
+                             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
+                             let jumpVec = new THREE.Vector3(0, 1, 0); jumpVec.addScaledVector(forward, 0.8); jumpVec.normalize();
+                             velocity.addScaledVector(jumpVec, SETTINGS.rocketJumpForce); canJump = false; playerStats.isFalling = true; playerMesh.position.y += 0.5;
+                             addToLog("Rocket Jump!", "spell-cast"); playSound('jump');
                         }
                     } else if (p.userData.type === 3) { 
                         spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -876,10 +843,7 @@
             if(isAttacking) { attackTimer += delta * 15; if(attackTimer > Math.PI) isAttacking = false; }
             if(weaponMode==='melee') {
                 let targetRotZ = -Math.PI/2; let targetRotY = 0; let armRotX = 0;
-                if (isAttacking) {
-                    const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); 
-                    armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; 
-                } else { const time = performance.now() * 0.002; targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; targetRotY = 0; }
+                if (isAttacking) { const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; } else { const time = performance.now() * 0.002; targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; targetRotY = 0; }
                 swordContainer.rotation.z = targetRotZ; swordContainer.rotation.y = targetRotY; swordContainer.rotation.x = Math.PI/2; 
                 if(isAttacking) playerLimbs.armR.rotation.x = armRotX;
             }
