@@ -5,7 +5,7 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(server, {
   cors: { origin: "*" },
-  pingTimeout: 5000, // Rileva disconnessioni rapidamente
+  pingTimeout: 5000,
   pingInterval: 10000
 });
 const path = require('path');
@@ -26,9 +26,9 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (userData) => {
         if (players[socket.id]) delete players[socket.id];
         
-        // Limita a 2 giocatori attivi per duello
-        if (Object.keys(players).length >= 2) {
-            socket.emit('serverMsg', 'Server pieno! Solo 1vs1.');
+        // Limita a 2 giocatori (opzionale, per ora lascio il controllo)
+        if (Object.keys(players).length >= 10) { // Alzato limite per test
+            socket.emit('serverMsg', 'Server pieno!');
             return;
         }
 
@@ -43,6 +43,7 @@ io.on('connection', (socket) => {
             rotation: { x: 0, y: 0, z: 0 },
             animState: 'idle',
             weaponMode: 'ranged',
+            isBlocking: false, // NUOVO STATO
             isDead: false
         };
 
@@ -76,6 +77,14 @@ io.on('connection', (socket) => {
         }
     });
 
+    // NUOVO: Gestione Parata
+    socket.on('playerBlock', (isBlocking) => {
+        if (players[socket.id]) {
+            players[socket.id].isBlocking = isBlocking;
+            socket.broadcast.emit('updateEnemyBlock', { id: socket.id, isBlocking: isBlocking });
+        }
+    });
+
     socket.on('playerAttack', (attackData) => {
         socket.broadcast.emit('enemyAttacked', {
             id: socket.id,
@@ -83,19 +92,22 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Gestione Fisica/Spinta (Spell 2 e 3)
+    // Gestione Fisica/Spinta
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
+            // Calcolo danno gestito dal client che spara, ma il server applica
             if (pushData.damage) {
                 players[targetId].hp -= pushData.damage;
             }
-            // Invia forza fisica al client target
+            
+            // Invia forza fisica al client target (Vettore o valore Y)
             io.to(targetId).emit('playerPushed', {
-                force: pushData.force,
+                forceY: pushData.forceY, // Per salti verticali (Fireball)
+                forceVec: pushData.forceVec, // Per spinte direzionali (Onda)
                 pushOrigin: pushData.pushOrigin
             });
-            // Aggiorna barre vita a tutti
+            
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
@@ -105,7 +117,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Danno Diretto (Spell 1, 4, Melee)
+    // Danno Diretto
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {
@@ -136,7 +148,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// Pulizia ghost players
 setInterval(() => {
     const now = Date.now();
     Object.keys(players).forEach(id => {
