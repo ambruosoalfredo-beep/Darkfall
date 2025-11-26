@@ -897,8 +897,8 @@
         }
         function spawnProjectile(type) {
             let geo, speed, color;
-            if (type === 1) { geo = new THREE.SphereGeometry(0.5); color = 0x00ffff; speed = 1500.0; } 
-            else if (type === 2) { geo = new THREE.SphereGeometry(1.2); color = 0xffffff; speed = 1200.0; } 
+            if (type === 1) { geo = new THREE.SphereGeometry(0.5); color = 0x00ffff; speed = SETTINGS.missileSpeed; } 
+            else if (type === 2) { geo = new THREE.SphereGeometry(1.2); color = 0xffffff; speed = SETTINGS.pushSpeed; } 
             else { geo = new THREE.SphereGeometry(2); color = 0xff6600; speed = SETTINGS.fireballSpeed; } 
             const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             const spawnPos = getStaffTip();
@@ -914,7 +914,7 @@
         }
         function spawnEnemyProjectile(startPos, direction, type) {
             let color = 0xff0000; let speed = 900;
-            if (type === 1) { color = 0x00ffff; speed = 1500; } else if (type === 2) { color = 0xffffff; speed = 1200; } else if (type === 3) { color = 0xff6600; speed = 600; }
+            if (type === 1) { color = 0x00ffff; speed = SETTINGS.missileSpeed; } else if (type === 2) { color = 0xffffff; speed = SETTINGS.pushSpeed; } else if (type === 3) { color = 0xff6600; speed = SETTINGS.fireballSpeed; }
             const geo = new THREE.SphereGeometry(type === 2 ? 1.2 : (type===3 ? 2 : 0.5)); const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
@@ -927,43 +927,44 @@
             
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
-                const velocityMagnitude = p.userData.velocity.length();
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
                 const nextPos = p.position.clone().add(move);
 
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
-
+                
+                // --- Collision Check ---
+                
                 // Create a ray from current position to next position
                 const direction = p.userData.velocity.clone().normalize();
+                // We use a Raycaster to detect collision over the travel distance, including obstacle collision.
                 const raycaster = new THREE.Raycaster(p.position, direction, 0, move.length() + 0.1); 
+                const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
+                
+                // Process hits
+                if (intersects.length > 0) {
+                    hit = true;
+                    hitPoint = intersects[0].point;
 
-                // Collision Check for Projectiles I Fired (isMine: true)
+                    let currentObj = intersects[0].object;
+                    while(currentObj) { 
+                        const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
+                        if(target) { hitTarget = target; break; }
+                        currentObj = currentObj.parent;
+                    }
+                }
+                
+                // Collision Check for Projectiles I Fired (isMine: true) against Opponent
                 if (p.userData.isMine) {
-                    const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
+                    if (hitTarget) {
+                        let dmg = 0;
+                        if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
+                        else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
+                        // Spell 2 (Push) deals no damage on hit.
 
-                    if (intersects.length > 0) {
-                        hit = true;
-                        hitPoint = intersects[0].point;
-                        
-                        let currentObj = intersects[0].object;
-                        while(currentObj) { 
-                            const target = Object.values(otherPlayers).find(op => op.mesh === currentObj);
-                            if(target) { hitTarget = target; break; }
-                            currentObj = currentObj.parent;
-                        }
-                        
-                        // If I hit the opponent, notify the server for damage
-                        if (hitTarget) {
-                            let dmg = 0;
-                            if (p.userData.type === 1) dmg = SETTINGS.missileDmg; // Bolt
-                            else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg; // Fireball
-                            // Note: Spell 2 (Push) deals no damage on hit, its effect is purely the push on ground hit (rocket jump)
-
-                            if (dmg > 0 && socket) {
-                                const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
-                                socket.emit('playerHit', { damage: dmg, targetId: targetId });
-                            }
+                        if (dmg > 0 && socket) {
+                            const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === hitTarget);
+                            socket.emit('playerHit', { damage: dmg, targetId: targetId });
                         }
                     }
                 } 
@@ -971,7 +972,7 @@
                 // Collision Check for Projectiles Fired by Opponent (isMine: false) against ME
                 else {
                     const distanceToPlayer = nextPos.distanceTo(playerMesh.position);
-                    // Proximity check (since opponent meshes are big bounding boxes)
+                    
                     if (distanceToPlayer < 6) {
                          hit = true; hitPoint = playerMesh.position;
                          let dmg = 0;
@@ -997,9 +998,11 @@
                 }
 
                 // Check collision with ground (for everyone)
-                if(nextPos.y <= 0) { 
+                if(!hit && nextPos.y <= 0) { 
                     hit=true; 
                     hitPoint.y = 0; 
+                    p.position.y = 0;
+
                     // Add explosive effect locally if type 2 or 3 (mine or enemy)
                     if (p.userData.type === 2 && p.userData.isMine) {
                         spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
@@ -1074,7 +1077,7 @@
             if (moveRight) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), speed*delta);
             if (moveLeft) velocity.addScaledVector(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)), -speed*delta);
             playerMesh.position.addScaledVector(velocity, delta);
-            if(playerMesh.position.y<6) { playerMesh.position.y=6; velocity.y=0; canJump=true; }
+            if(playerMesh.position.y<6) { playerMesh.position.y=6; velocity.y=0; canJump=true; playerStats.isFalling = false; }
             
             obstacles.forEach(o => { 
                 const box = new THREE.Box3().setFromObject(o);
