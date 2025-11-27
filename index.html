@@ -163,20 +163,29 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         
+        // Jump Vars
+        let lastJumpTime = 0;
         let lastFootstepTime = 0;
         let distanceSinceStep = 0;
 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
         const SETTINGS = { 
-            speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, 
+            speed: 400.0, sprintMulti: 1.4, 
+            jumpForce: 250.0, 
+            gravity: 800.0, 
+            
+            // JUMP SETTINGS
+            jumpCooldown: 1000,
+            jumpCost: 20,
+
             missileSpeed: 900.0, 
             missileDmg: 5, 
             missileCost: 5,
             
-            // INCREASED RADIUS FOR ONDA (Shockwave) TO MATCH VISUALS BETTER
+            // ONDA (Shockwave) Visual Reduced
             pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, 
-            pushRadius: 45, // Aumentato da 30 a 45
+            pushRadius: 25, // Reduced from 45 (User req: smaller visual)
             
             fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
@@ -417,14 +426,13 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             
-            // FIX ROTAZIONE SPADA NEMICO
+            // FIX ROTAZIONE SPADA NEMICO: Lama in avanti (verso Z)
             swordGroup.position.set(0,-5,0.5); 
-            swordGroup.rotation.x = -Math.PI/2; // Punta in avanti
+            swordGroup.rotation.x = -Math.PI/2; 
             
             swordGroup.visible = false; armR.add(swordGroup);
 
             const shield = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4 }));
-            // FIX ROTAZIONE SCUDO
             shield.position.set(3, -2, 0); 
             shield.rotation.y = -Math.PI/2; 
             
@@ -465,7 +473,6 @@
             if(p.weaponMeshes && p.weaponMeshes.shield) {
                 p.weaponMeshes.shield.visible = blocking;
                 if(blocking) {
-                    // Nemico para: braccio avanti
                     p.limbs.armL.rotation.set(-Math.PI/2, 0, Math.PI/2);
                 } else {
                     p.limbs.armL.rotation.set(0,0,0);
@@ -498,7 +505,7 @@
             
             // FIX ROTAZIONE SPADA LOCALE
             swordContainer.position.set(0,-5,0.5); 
-            swordContainer.rotation.x = -Math.PI/2; // Punta in avanti
+            swordContainer.rotation.x = -Math.PI/2; 
             
             swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
             const trailGeo = new THREE.RingGeometry(8, 12, 32, 1, 0, Math.PI);
@@ -528,16 +535,22 @@
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
                 mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
-                // Life = 1.0 secondi esatti per i transfert
-                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 1.0, isGib: isGibs });
+                // Life 1.0
+                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 1.0, maxLife: 1.0, isGib: isGibs });
             }
         }
         function updateParticles(delta) {
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i]; p.life -= delta; p.velocity.y -= 50.0 * delta; 
                 p.mesh.position.addScaledVector(p.velocity, delta); p.mesh.rotation.x+=delta*5;
+                
+                // Fade out scale
+                const scale = p.life / p.maxLife;
+                p.mesh.scale.setScalar(scale);
+
                 if (p.mesh.position.y < 0.5) { p.mesh.position.y = 0.5; if(p.isGib) { p.velocity.y*=-0.5; p.velocity.x*=0.8; p.velocity.z*=0.8; } else p.velocity.set(0,0,0); }
-                if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); } else if(p.life < 1.0) p.mesh.scale.setScalar(p.life);
+                
+                if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); }
             }
         }
         function createFloatingText(pos, text, color) {
@@ -565,6 +578,9 @@
                 scale += 0.2; sphere.scale.setScalar(scale); sphere.material.opacity -= 0.05;
                 if (sphere.material.opacity <= 0) { clearInterval(expand); scene.remove(sphere); scene.remove(light); geometry.dispose(); material.dispose(); }
             }, 30);
+            
+            // Clean up sphere manually after 1s if it lingers
+            setTimeout(() => { if(sphere.parent) scene.remove(sphere); if(light.parent) scene.remove(light); }, 1000);
         }
         function flashScreen(colorStr) { const flash = document.getElementById('screen-flash'); flash.style.backgroundColor = colorStr; flash.style.opacity = 0.4; setTimeout(() => { flash.style.opacity = 0; }, 150); }
         function spawnGlowEffect(color) {
@@ -638,7 +654,6 @@
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
                 playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
-                // Animazione Melee fluida
                 if (!canJump && !playerStats.isFalling) { 
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
@@ -876,7 +891,6 @@
             if (playerStats.stamina < SETTINGS.whirlwindCost) { addToLog("Stamina insufficiente!", "#555"); return; }
             playerStats.stamina -= SETTINGS.whirlwindCost; lastWhirlwindTime = now; if (!canJump) return; velocity.y += 150; canJump = false; isWhirlwinding = true; setTimeout(() => { isWhirlwinding = false; }, 500);
             
-            // Solo particelle, niente sfera bianca
             spawnParticles(playerMesh.position, 0xffffff, 40, 60, 0.6, false);
             
             addToLog("TURBINE ATTIVATO!", "spell-cast"); 
@@ -1014,10 +1028,8 @@
                                 spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius);
                                 checkShockwaveAoE(hitPoint);
                             } else if (p.userData.type === 3) { 
-                                // FIREBALL HIT (Direct)
                                 spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
                                 socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
-                                // AOE Splash (5 HP fisso)
                                 checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
                             } else if (p.userData.type === 1) { 
@@ -1047,7 +1059,6 @@
                             checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                            // Fireball Ground Splash (5 HP fissi)
                             checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
                         }
                     }
@@ -1256,7 +1267,16 @@
                 if (keyToRebind || playerStats.isDead) return; 
                 switch(e.code) {
                     case KEYBINDS.MOVE_FORWARD: moveForward=true; break; case KEYBINDS.MOVE_LEFT: moveLeft=true; break; case KEYBINDS.MOVE_BACKWARD: moveBackward=true; break; case KEYBINDS.MOVE_RIGHT: moveRight=true; break;
-                    case KEYBINDS.JUMP: if(canJump) velocity.y+=SETTINGS.jumpForce; canJump=false; break;
+                    case KEYBINDS.JUMP: 
+                        // JUMP: Cost & Cooldown Logic
+                        const now = performance.now();
+                        if(canJump && (now - lastJumpTime > SETTINGS.jumpCooldown) && playerStats.stamina >= SETTINGS.jumpCost) {
+                            velocity.y += SETTINGS.jumpForce; 
+                            playerStats.stamina -= SETTINGS.jumpCost;
+                            lastJumpTime = now;
+                            canJump = false;
+                        }
+                        break;
                     case KEYBINDS.SPRINT: isSprinting=true; break; 
                     case KEYBINDS.WEAPON_SWITCH: if (weaponMode === 'melee') { performWhirlwind(); } else { toggleWeapon(); } break; 
                     case KEYBINDS.HEAL: performHeal(); break;
@@ -1278,8 +1298,12 @@
                 if(document.pointerLockElement===document.body && !playerStats.isDead) {
                     if (e.button === 0) { 
                         if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } else { performAttack(); } 
-                    } else if (e.button === 2) { 
-                        if (weaponMode === 'melee') startBlocking();
+                    } else if (e.button === 2) { // RIGHT CLICK
+                        // Auto-switch to Melee
+                        if (weaponMode === 'ranged') {
+                            toggleWeapon(false);
+                        }
+                        startBlocking();
                     }
                 } 
             });
