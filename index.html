@@ -40,6 +40,7 @@
         .plus-red { color: #ff5555; } .minus-yellow { color: #ffd700; } .plus-blue { color: #5555ff; } .minus-red { color: #ff5555; } .plus-yellow { color: #ffd700; } .minus-blue { color: #5555ff; }
         .cooldown-overlay { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(0, 0, 0, 0.7); z-index: 5; pointer-events: none; transition: height 0.1s linear; }
         .slot-q .spell-icon { color: #fff; text-shadow: 0 0 5px cyan; }
+        .slot-e .spell-icon { color: #aaddaa; text-shadow: 0 0 5px lime; }
         .slot-1 .spell-icon { color: #00ffff; } .slot-2 .spell-icon { color: #ffffff; } .slot-3 .spell-icon { color: #ff6600; } .slot-4 .spell-icon { color: #aa00ff; } .slot-r .spell-icon { color: #00ff00; }
         #slot-5 .spell-icon, #slot-6 .spell-icon, #slot-7 .spell-icon { color: white; }
         #cast-bar-container { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); width: 200px; height: 16px; background: #222; border: 1px solid #777; display: none; z-index: 40; border-radius: 4px; overflow: hidden; }
@@ -85,6 +86,7 @@
     
     <div id="action-bar">
         <div id="slot-q" class="action-slot slot-q"><div class="key-label" id="lbl-switch">Q</div><div class="spell-icon">⚔️</div><div class="cooldown-overlay" id="whirlwind-cd"></div></div>
+        <div id="slot-e" class="action-slot slot-e"><div class="key-label" id="lbl-bow">E</div><div class="spell-icon">🏹</div><div class="cooldown-overlay"></div></div>
         <div id="slot-1" class="action-slot slot-1 active"><div class="key-label" id="lbl-spell1">1</div><div class="spell-icon">🔹</div><div class="cooldown-overlay"></div></div>
         <div id="slot-2" class="action-slot slot-2"><div class="key-label" id="lbl-spell2">2</div><div class="spell-icon">💨</div><div class="cooldown-overlay"></div></div>
         <div id="slot-3" class="action-slot slot-3"><div class="key-label" id="lbl-spell3">3</div><div class="spell-icon">🔥</div><div class="cooldown-overlay"></div></div>
@@ -147,7 +149,7 @@
         function random() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
 
         let camera, scene, renderer;
-        let playerMesh, swordContainer, staffContainer, shieldMesh;
+        let playerMesh, swordContainer, staffContainer, shieldMesh, bowContainer;
         let playerLimbs = { legL: null, legR: null, armL: null, armR: null, head: null, torso: null, helmet: null };
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let canJump = false; let isSprinting = false;
@@ -206,10 +208,17 @@
             beamCost: 5, 
             beamRange: 200, 
             
+            // Bow (Arco)
+            bowCastTime:0.3, 
+            arrowSpeed: 100.0, 
+            arrowDmg: 25, 
+            arrowCost: 0, 
+            arrowGravity: 5, // GRAVITÀ FRECCIA RIDOTTA
+            
             fireRate: 400, meleeRate: 500, 
             meleeRange: 32, 
             meleeDmg: 15, 
-            meleeKnockbackForce: 100, // MODIFICATO: Forza di knockback ridotta
+            meleeKnockbackForce: 100, 
             
             manaRegen: 2.0, 
             staminaCost: 0.2, 
@@ -288,7 +297,6 @@
                 });
 
                 socket.on('remoteDamageTaken', (data) => {
-                    // Gestisce la perdita di sangue visibile a tutti i giocatori (sia melee che ranged)
                     if (data.id === myId) {
                         spawnParticles(playerMesh.position, 0xff0000, 5, 20, 0.5, false); 
                     } else if (otherPlayers[data.id]) { 
@@ -298,7 +306,6 @@
                 });
                 
                 socket.on('playerHitResponse', (data) => {
-                    // Risposta specifica per il player colpito (per effetti locali come flash)
                     const diff = -data.damage;
                     playerStats.hp = Math.max(0, playerStats.hp + diff); 
                     updateUI(); 
@@ -341,31 +348,21 @@
                 });
                 
                 socket.on('playerDied', (data) => { 
-                    // Questa logica viene eseguita su TUTTI i client (io.emit dal server)
                     if (data.id === myId) { 
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
-                        
-                        // Esplosione di sangue e pezzi (isGibs: true) per me stesso (per chi muore)
                         spawnParticles(playerMesh.position, 0xff0000, 50, 50, 1.0, true);
-                        
-                        // Rendi invisibile il mesh locale dopo l'esplosione
                         playerMesh.visible = false;
-                        
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
-                        
-                        // Esplosione di sangue e pezzi (isGibs: true) (visibile a tutti i players)
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 50, 50, 1.0, true); 
-                        
-                        // Rimuovi l'avversario dopo l'animazione di esplosione
                         setTimeout(() => { 
                             if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { 
                                 removeOtherPlayer(data.id); 
                             } 
-                        }, 500); // Rimozione quasi immediata dopo l'effetto di esplosione
+                        }, 500); 
                     } 
                 });
             } else { console.warn("Modalità Offline"); document.getElementById('connection-status').innerText = "OFFLINE"; }
@@ -373,20 +370,26 @@
 
         // --- FUNCTIONS ---
 
-        const KEYBINDS = { MOVE_FORWARD: 'KeyW', MOVE_LEFT: 'KeyA', MOVE_BACKWARD: 'KeyS', MOVE_RIGHT: 'KeyD', JUMP: 'Space', SPRINT: 'ShiftLeft', WEAPON_SWITCH: 'KeyQ', SPELL_1: 'Digit1', SPELL_2: 'Digit2', SPELL_3: 'Digit3', SPELL_4: 'Digit4', HEAL: 'KeyR', CONVERT_1: 'Digit5', CONVERT_2: 'Digit6', CONVERT_3: 'Digit7' };
+        const KEYBINDS = { MOVE_FORWARD: 'KeyW', MOVE_LEFT: 'KeyA', MOVE_BACKWARD: 'KeyS', MOVE_RIGHT: 'KeyD', JUMP: 'Space', SPRINT: 'ShiftLeft', WEAPON_SWITCH: 'KeyQ', BOW_EQUIP: 'KeyE', SPELL_1: 'Digit1', SPELL_2: 'Digit2', SPELL_3: 'Digit3', SPELL_4: 'Digit4', HEAL: 'KeyR', CONVERT_1: 'Digit5', CONVERT_2: 'Digit6', CONVERT_3: 'Digit7' };
         const STORAGE_KEY = 'darkfall_global_save'; 
         function loadLocal() { try { const saved = localStorage.getItem(STORAGE_KEY); if(saved) Object.assign(KEYBINDS, JSON.parse(saved)); } catch(e) {} } loadLocal();
         function saveKeybinds(binds) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(binds)); } catch(e) {} }
-        const KEY_NAMES_MAP = { MOVE_FORWARD: "Avanti", MOVE_LEFT: "Sinistra", MOVE_BACKWARD: "Indietro", MOVE_RIGHT: "Destra", JUMP: "Salto", SPRINT: "Scatto", WEAPON_SWITCH: "Cambia/Whirlwind", SPELL_1: "Dardo", SPELL_2: "Onda", SPELL_3: "Fuoco", SPELL_4: "Spuntoni", HEAL: "Cura", CONVERT_1: "Stam->HP", CONVERT_2: "HP->Mana", CONVERT_3: "Mana->Stam" };
+        const KEY_NAMES_MAP = { MOVE_FORWARD: "Avanti", MOVE_LEFT: "Sinistra", MOVE_BACKWARD: "Indietro", MOVE_RIGHT: "Destra", JUMP: "Salto", SPRINT: "Scatto", WEAPON_SWITCH: "Cambia/Melee", BOW_EQUIP: "Arco", SPELL_1: "Dardo", SPELL_2: "Onda", SPELL_3: "Fuoco", SPELL_4: "Spuntoni", HEAL: "Cura", CONVERT_1: "Stam->HP", CONVERT_2: "HP->Mana", CONVERT_3: "Mana->Stam" };
         let keyToRebind = null;
 
         function initKeybindUI() { const list = document.getElementById('bindings-list'); if(!list) return; list.innerHTML = ''; for (const [action, code] of Object.entries(KEYBINDS)) { const row = document.createElement('div'); row.className = 'key-row'; const label = document.createElement('span'); label.innerText = KEY_NAMES_MAP[action] || action; const btn = document.createElement('button'); btn.className = 'key-btn'; btn.innerText = code.replace('Key', '').replace('Digit', ''); btn.onclick = () => startRebinding(action, btn); row.appendChild(label); row.appendChild(btn); list.appendChild(row); } updateActionLabels(); }
         function startRebinding(action, btnElement) { if(keyToRebind) return; keyToRebind = action; btnElement.classList.add('listening'); btnElement.innerText = 'PREMI...'; const handler = (e) => { e.preventDefault(); e.stopPropagation(); KEYBINDS[action] = e.code; saveKeybinds(KEYBINDS); btnElement.innerText = e.code.replace('Key', '').replace('Digit', ''); btnElement.classList.remove('listening'); keyToRebind = null; document.removeEventListener('keydown', handler); updateActionLabels(); }; document.addEventListener('keydown', handler, { once: true }); }
-        function updateActionLabels() { const set = (id, action) => { const el = document.getElementById(id); if(el) el.innerText = KEYBINDS[action].replace('Key', '').replace('Digit', '').replace('ShiftLeft', 'SHFT').replace('Space', 'SPC'); }; set('lbl-switch', 'WEAPON_SWITCH'); set('lbl-spell1', 'SPELL_1'); set('lbl-spell2', 'SPELL_2'); set('lbl-spell3', 'SPELL_3'); set('lbl-spell4', 'SPELL_4'); set('lbl-heal', 'HEAL'); set('lbl-conv1', 'CONVERT_1'); set('lbl-conv2', 'CONVERT_2'); set('lbl-conv3', 'CONVERT_3'); }
+        function updateActionLabels() { const set = (id, action) => { const el = document.getElementById(id); if(el) el.innerText = KEYBINDS[action].replace('Key', '').replace('Digit', '').replace('ShiftLeft', 'SHFT').replace('Space', 'SPC'); }; set('lbl-switch', 'WEAPON_SWITCH'); set('lbl-bow', 'BOW_EQUIP'); set('lbl-spell1', 'SPELL_1'); set('lbl-spell2', 'SPELL_2'); set('lbl-spell3', 'SPELL_3'); set('lbl-spell4', 'SPELL_4'); set('lbl-heal', 'HEAL'); set('lbl-conv1', 'CONVERT_1'); set('lbl-conv2', 'CONVERT_2'); set('lbl-conv3', 'CONVERT_3'); }
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         let audioEnabled = false;
-        function toggleAudio() { audioEnabled = !audioEnabled; document.getElementById('audio-btn').innerText = audioEnabled ? "AUDIO: ON" : "AUDIO: OFF"; if(audioEnabled && audioCtx.state === 'suspended') audioCtx.resume(); }
+        function toggleAudio() { 
+            audioEnabled = !audioEnabled; 
+            document.getElementById('audio-btn').innerText = audioEnabled ? "AUDIO: ON" : "AUDIO: OFF"; 
+            if(audioEnabled && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(e => console.warn("Audio resume failed:", e));
+            }
+        }
         
         function playSound(type, pos = null) {
             if (!audioEnabled) return; 
@@ -431,7 +434,7 @@
         function init() {
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2a45); scene.fog = new THREE.Fog(0x2a2a45, 50, 600);
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 1000);
-            createPlayer(); createSword(); createStaff(); createShield(); 
+            createPlayer(); createSword(); createStaff(); createShield(); createBow();
             const light = new THREE.HemisphereLight(0x777799, 0x111122, 1.0); scene.add(light); const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5); dirLight.position.set(100, 200, 50); dirLight.castShadow = true; scene.add(dirLight);
             seed = WORLD_SEED; setupWorld(); setupControls(); setupUIEvents();
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
@@ -474,8 +477,8 @@
             const legLowerGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6);
             
             // Gamba Sinistra
-            const legL = new THREE.Mesh(legUpperGeo, armorMat); legL.geometry.translate(0, -3.25 / 2, 0); // Sposta il pivot in alto
-            legL.position.set(-1.4, 3.5, 0); // Posizione sotto il torso (3.5)
+            const legL = new THREE.Mesh(legUpperGeo, armorMat); legL.geometry.translate(0, -3.25 / 2, 0); 
+            legL.position.set(-1.4, 3.5, 0); 
             const bootL = new THREE.Mesh(legLowerGeo, armorMat); bootL.geometry.translate(0, -3.25 / 2, 0);
             bootL.position.y = -3.25;
             legL.add(bootL);
@@ -490,9 +493,9 @@
             mesh.add(legR);
             
             const armGeo = new THREE.BoxGeometry(1.4, 6, 1.4);
-            const armL = new THREE.Mesh(armGeo, armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3, 8.0, 0); // Alzato per le spalle
+            const armL = new THREE.Mesh(armGeo, armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3, 8.0, 0); 
             mesh.add(armL);
-            const armR = new THREE.Mesh(armGeo, armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3, 8.0, 0); // Alzato per le spalle
+            const armR = new THREE.Mesh(armGeo, armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3, 8.0, 0); 
             mesh.add(armR);
             const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,22), new THREE.MeshStandardMaterial({color:0x3e2723})); staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff);
             
@@ -501,10 +504,9 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             
-            // Rotazione spada nemico (melee) in 3a persona: Corretta la rotazione
             swordGroup.position.set(0,-5,0.5); 
             swordGroup.rotation.x = -Math.PI/2; 
-            swordGroup.rotation.z = Math.PI/2; // Rotazione per far puntare la punta in avanti (lungo Z)
+            swordGroup.rotation.z = Math.PI/2; 
             
             swordGroup.visible = false; armR.add(swordGroup);
 
@@ -513,6 +515,21 @@
             shield.rotation.y = -Math.PI/2; 
             
             shield.visible = false; armL.add(shield);
+
+            // BOW for Enemy
+            const bowGroup = new THREE.Group();
+            const bowCurve = new THREE.Mesh(new THREE.TorusGeometry(3, 0.2, 8, 12, Math.PI), new THREE.MeshStandardMaterial({color: 0x8B4513}));
+            bowCurve.rotation.z = -Math.PI/2;
+            bowGroup.add(bowCurve);
+            const stringGeo = new THREE.CylinderGeometry(0.05, 0.05, 6);
+            const string = new THREE.Mesh(stringGeo, new THREE.MeshBasicMaterial({color: 0xffffff}));
+            string.rotation.z = -Math.PI/2;
+            string.position.x = -0.5; // Offset string slightly
+            bowGroup.add(string);
+            
+            bowGroup.position.set(0, -2, 0);
+            bowGroup.visible = false;
+            armL.add(bowGroup); // Held in left hand
 
             mesh.position.set(info.position.x, info.position.y, info.position.z);
             const label = createPlayerLabel(info.username); label.position.y = 14; label.userData.isLabel = true; mesh.add(label); mesh.userData.hpBar = label.userData.hpBar; 
@@ -524,11 +541,11 @@
                     armL, armR, 
                     legL: legL, 
                     legR: legR, 
-                    bootL: bootL, // Aggiunto per animazione
-                    bootR: bootR, // Aggiunto per animazione
+                    bootL: bootL, 
+                    bootR: bootR, 
                     head: headGroup, torso 
                 }, 
-                weaponMeshes: { staff: staff, sword: swordGroup, shield: shield },
+                weaponMeshes: { staff: staff, sword: swordGroup, shield: shield, bow: bowGroup },
                 isAttacking: false, attackTimer: 0, isWhirlwinding: false, isDead: false,
                 lastStepPos: new THREE.Vector3()
             };
@@ -548,7 +565,6 @@
             if(playerObj && playerObj.mesh.userData.hpBar) { 
                 const scale = Math.max(0, hp / 100); 
                 playerObj.mesh.userData.hpBar.scale.x = scale; 
-                // Aggiornamento colore in base all'HP
                 playerObj.mesh.userData.hpBar.material.color.setHex(scale > 0.5 ? 0x00ff00 : (scale > 0.2 ? 0xffa500 : 0xff0000)); 
             } 
         }
@@ -563,6 +579,7 @@
             if (p.weaponMeshes) {
                 p.weaponMeshes.staff.visible = (mode === 'ranged');
                 p.weaponMeshes.sword.visible = (mode === 'melee');
+                p.weaponMeshes.bow.visible = (mode === 'bow');
             }
         }
         
@@ -586,11 +603,9 @@
             playerLimbs.head = createHelmet(playerMesh);
             playerLimbs.helmet = playerLimbs.head;
 
-            // Gambe composte (Cosce e Stivali)
-            const legUpperGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6); // Coscia (Upper Leg)
-            const legLowerGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6); // Stivale (Lower Leg)
+            const legUpperGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6);
+            const legLowerGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6);
             
-            // Gamba Sinistra
             playerLimbs.legL = new THREE.Mesh(legUpperGeo, armorMat); playerLimbs.legL.geometry.translate(0, -3.25 / 2, 0); 
             playerLimbs.legL.position.set(-1.4, 3.5, 0);
             const bootL = new THREE.Mesh(legLowerGeo, armorMat); bootL.geometry.translate(0, -3.25 / 2, 0);
@@ -599,7 +614,6 @@
             playerMesh.add(playerLimbs.legL);
             playerLimbs.bootL = bootL;
 
-            // Gamba Destra
             playerLimbs.legR = new THREE.Mesh(legUpperGeo, armorMat); playerLimbs.legR.geometry.translate(0, -3.25 / 2, 0); 
             playerLimbs.legR.position.set(1.4, 3.5, 0);
             const bootR = new THREE.Mesh(legLowerGeo, armorMat); bootR.geometry.translate(0, -3.25 / 2, 0);
@@ -609,9 +623,9 @@
             playerLimbs.bootR = bootR;
             
             const armGeo = new THREE.BoxGeometry(1.4, 6, 1.4);
-            playerLimbs.armL = new THREE.Mesh(armGeo, armorMat); playerLimbs.armL.geometry.translate(0,-2.5,0); playerLimbs.armL.position.set(-3,8.0,0); // Modifica: Alzato per le spalle
+            playerLimbs.armL = new THREE.Mesh(armGeo, armorMat); playerLimbs.armL.geometry.translate(0,-2.5,0); playerLimbs.armL.position.set(-3,8.0,0); 
             playerMesh.add(playerLimbs.armL);
-            playerLimbs.armR = new THREE.Mesh(armGeo, armorMat); playerLimbs.armR.geometry.translate(0,-2.5,0); playerLimbs.armR.position.set(3,8.0,0); // Modifica: Alzato per le spalle
+            playerLimbs.armR = new THREE.Mesh(armGeo, armorMat); playerLimbs.armR.geometry.translate(0,-2.5,0); playerLimbs.armR.position.set(3,8.0,0); 
             playerMesh.add(playerLimbs.armR);
             playerMesh.position.y = 6; scene.add(playerMesh);
         }
@@ -621,7 +635,6 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordContainer.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordContainer.add(hilt);
             
-            // Rotazione spada locale (melee) in 3a persona: Corretta la rotazione per puntare in avanti
             swordContainer.position.set(0,-5,0.5); 
             swordContainer.rotation.x = -Math.PI/2; 
             swordContainer.rotation.y = 0; 
@@ -639,12 +652,25 @@
             const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.8), new THREE.MeshBasicMaterial({color:0x00ffff, transparent:true, opacity:0.9})); gem.position.y=17; staffContainer.add(gem);
             staffContainer.userData.gem = gem; staffContainer.position.set(0,-4,0); staffContainer.rotation.x=-Math.PI/6; playerLimbs.armR.add(staffContainer);
         }
+        function createBow() {
+            bowContainer = new THREE.Group();
+            const bowCurve = new THREE.Mesh(new THREE.TorusGeometry(3, 0.2, 8, 12, Math.PI), new THREE.MeshStandardMaterial({color: 0x8B4513}));
+            bowCurve.rotation.z = -Math.PI/2;
+            bowContainer.add(bowCurve);
+            const stringGeo = new THREE.CylinderGeometry(0.05, 0.05, 6);
+            const string = new THREE.Mesh(stringGeo, new THREE.MeshBasicMaterial({color: 0xffffff}));
+            string.rotation.z = -Math.PI/2;
+            string.position.x = -0.5;
+            bowContainer.add(string);
+            
+            bowContainer.position.set(0, -2, 0);
+            bowContainer.visible = false;
+            playerLimbs.armL.add(bowContainer);
+        }
         function createShield() {
             shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
-            // Rotazione scudo locale
             shieldMesh.position.set(3, -2, 0); 
             shieldMesh.rotation.y = -Math.PI/2;
-            
             shieldMesh.visible = false;
             playerLimbs.armL.add(shieldMesh);
         }
@@ -652,12 +678,10 @@
         function spawnParticles(pos, color, count, speedBase, size, isGibs) {
             const mat = new THREE.MeshBasicMaterial({ color: color });
             for(let i=0; i<count; i++) {
-                // Se isGibs è true, usa particelle più grandi per simulare pezzi di corpo
                 const particleSize = isGibs ? (size * (0.5 + random() * 0.5)) : size;
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(particleSize,particleSize,particleSize), mat);
                 mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
-                // Life 1.0
                 particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 1.0, maxLife: 1.0, isGib: isGibs });
             }
         }
@@ -665,13 +689,9 @@
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i]; p.life -= delta; p.velocity.y -= 50.0 * delta; 
                 p.mesh.position.addScaledVector(p.velocity, delta); p.mesh.rotation.x+=delta*5;
-                
-                // Fade out scale
                 const scale = p.life / p.maxLife;
                 p.mesh.scale.setScalar(scale);
-
                 if (p.mesh.position.y < 0.5) { p.mesh.position.y = 0.5; if(p.isGib) { p.velocity.y*=-0.5; p.velocity.x*=0.8; p.velocity.z*=0.8; } else p.velocity.set(0,0,0); }
-                
                 if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); }
             }
         }
@@ -700,14 +720,12 @@
                 scale += 0.2; sphere.scale.setScalar(scale); sphere.material.opacity -= 0.05;
                 if (sphere.material.opacity <= 0) { clearInterval(expand); scene.remove(sphere); scene.remove(light); geometry.dispose(); material.dispose(); }
             }, 30);
-            
-            // Clean up sphere manually after 1s if it lingers
             setTimeout(() => { if(sphere.parent) scene.remove(sphere); if(light.parent) scene.remove(light); }, 1000);
         }
         function flashScreen(colorStr) { const flash = document.getElementById('screen-flash'); flash.style.backgroundColor = colorStr; flash.style.opacity = 0.4; setTimeout(() => { flash.style.opacity = 0; }, 150); }
         function spawnGlowEffect(color) {
             let spawnPos;
-            if(weaponMode === 'ranged') {
+            if(weaponMode === 'ranged' || weaponMode === 'bow') {
                 const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
                 spawnPos = camera.position.clone().add(camDir.multiplyScalar(3));
                 spawnParticles(spawnPos, color, 10, 5, 0.2, false);
@@ -715,11 +733,7 @@
                 spawnPos = playerMesh.position.clone().add(new THREE.Vector3(0,5,0));
                 spawnParticles(playerMesh.position, color, 15, 15, 0.3, false);
             }
-            
-            const light = new THREE.PointLight(color, 8, 30); 
-            light.position.copy(spawnPos); 
-            scene.add(light);
-            
+            const light = new THREE.PointLight(color, 8, 30); light.position.copy(spawnPos); scene.add(light);
             let intensity = 8;
             const fade = setInterval(() => { intensity -= 0.4; light.intensity = intensity; if (intensity <= 0) { clearInterval(fade); scene.remove(light); } }, 50);
         }
@@ -728,13 +742,11 @@
             const gridHelper = new THREE.GridHelper(2000, 100, 0x223344, 0x111122); scene.add(gridHelper);
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshLambertMaterial({ color: 0x152515 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -0.1; scene.add(floor);
             for(let i=0; i<40; i++) { 
-                let x=(random()-0.5)*800, z=(random()-0.5)*800; 
-                if(Math.abs(x)<50 && Math.abs(z)<50) continue; 
+                let x=(random()-0.5)*800, z=(random()-0.5)*800; if(Math.abs(x)<50 && Math.abs(z)<50) continue; 
                 createPineTree(x, z, random()); 
             }
             for(let i=0; i<15; i++) { 
-                let x=(random()-0.5)*700, z=(random()-0.5)*700; 
-                if(Math.abs(x)<80 && Math.abs(z)<80) continue; 
+                let x=(random()-0.5)*700, z=(random()-0.5)*700; if(Math.abs(x)<80 && Math.abs(z)<80) continue; 
                 createFantasyHouse(x, z, random()); 
             }
         }
@@ -761,60 +773,58 @@
             const time = performance.now() * 0.005;
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             
-            if (playerStats.isDead) {
-                // L'animazione di morte è gestita dall'esplosione e dalla scomparsa
-                playerMesh.position.y = 6; 
-                return;
-            }
+            if (playerStats.isDead) { playerMesh.position.y = 6; return; }
             
-            // Posizione neutra per le braccia in melee, alzata per le spalle
             const neutralArmY = 8.0; 
 
             if (weaponMode === 'ranged') {
-                playerLimbs.armR.position.y = 6.0; // Piu bassa in ranged
-                playerLimbs.armL.position.y = 6.0;
+                playerLimbs.armR.position.y = 6.0; playerLimbs.armL.position.y = 6.0;
                 playerLimbs.armR.rotation.x = -Math.PI / 2 + Math.sin(time) * 0.05 - (isAttacking ? Math.sin(attackTimer * 2) * 0.5 : 0); 
                 playerLimbs.armR.rotation.z = 0;
                 if(staffContainer.userData.gem) staffContainer.userData.gem.scale.setScalar(isAttacking ? 1.5 : 1.0);
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
-                playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; 
-                playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
-            } else {
-                playerLimbs.armR.position.y = neutralArmY; // Più alta in melee
-                playerLimbs.armL.position.y = neutralArmY;
+                playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
+            } else if (weaponMode === 'bow') {
+                playerLimbs.armR.position.y = 6.0; playerLimbs.armL.position.y = 6.0;
+                // Braccio sx tiene l'arco (teso in avanti, ma spostato al centro per visuale)
+                playerLimbs.armL.rotation.x = -Math.PI / 2;
+                playerLimbs.armL.rotation.y = -0.2; // slight adjustment
+                playerLimbs.armL.position.x = -0.5; // Center more
+                playerLimbs.armL.position.y = 5.5; // Lower slightly
+                playerLimbs.armL.position.z = 1.5; // Push forward
                 
+                if(castingState.active && castingState.type === 'bow_shot') {
+                     playerLimbs.armR.rotation.x = -Math.PI / 2;
+                     playerLimbs.armR.position.z = -Math.sin(castingState.timer * 2) * 1.5 + 1; // Tira indietro
+                } else {
+                     playerLimbs.armR.rotation.x = -0.5;
+                     playerLimbs.armR.position.z = 0;
+                }
+                playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
+            } else {
+                // Reset positions for melee
+                playerLimbs.armL.position.x = -3; playerLimbs.armL.position.z = 0;
+                
+                playerLimbs.armR.position.y = neutralArmY; playerLimbs.armL.position.y = neutralArmY;
                 if (!canJump && !playerStats.isFalling) { 
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
                 } else if (isMoving) { 
                     const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
-                    
-                    // Movimento gambe: rotazione della coscia
-                    playerLimbs.legL.rotation.x = angle * legAmp; 
-                    playerLimbs.legR.rotation.x = -angle * legAmp; 
-                    
-                    // Contro-rotazione dello stivale per tenere il piede a terra
+                    playerLimbs.legL.rotation.x = angle * legAmp; playerLimbs.legR.rotation.x = -angle * legAmp; 
                     if(playerLimbs.bootL) playerLimbs.bootL.rotation.x = -playerLimbs.legL.rotation.x * 0.6;
                     if(playerLimbs.bootR) playerLimbs.bootR.rotation.x = -playerLimbs.legR.rotation.x * 0.6;
-                    
                     if (!isAttacking && !isWhirlwinding && !isBlocking) { 
-                        playerLimbs.armL.rotation.x = -angle * armAmp; 
-                        
-                        // Rotazione Braccio Melee in Movimento: Lungo il corpo (-0.1) invece di in avanti
-                        playerLimbs.armR.rotation.x = angle * armAmp; 
+                        playerLimbs.armL.rotation.x = -angle * armAmp; playerLimbs.armR.rotation.x = angle * armAmp; 
                     }
                     playerLimbs.torso.rotation.x = isSprintingActive ? 0.3 : 0.1; 
                 } else {
                     playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; 
                     if(playerLimbs.bootL) playerLimbs.bootL.rotation.x = 0;
                     if(playerLimbs.bootR) playerLimbs.bootR.rotation.x = 0;
-                    
                     if(!isAttacking && !isWhirlwinding && !isBlocking) { 
-                        playerLimbs.armL.rotation.x = Math.sin(time)*0.05; 
-                        
-                        // Rotazione Braccio Melee Idle: Lungo il corpo (-0.1) invece di in avanti
-                        playerLimbs.armR.rotation.x = -0.1;
+                        playerLimbs.armL.rotation.x = Math.sin(time)*0.05; playerLimbs.armR.rotation.x = -0.1;
                     }
                     playerLimbs.torso.rotation.x = 0;
                 }
@@ -830,69 +840,38 @@
             
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
-                
-                if (p.isDead) { 
-                    return; 
-                }
-                
-                // Aggiorna altezza braccia nemico in base al modo
+                if (p.isDead) return; 
                 const enemyNeutralArmY = p.mesh.userData.weaponMode === 'melee' ? neutralArmY : 6.0;
-                p.limbs.armR.position.y = enemyNeutralArmY;
-                p.limbs.armL.position.y = enemyNeutralArmY;
-                
+                p.limbs.armR.position.y = enemyNeutralArmY; p.limbs.armL.position.y = enemyNeutralArmY;
                 const distMoved = mesh.position.distanceTo(p.lastStepPos || mesh.position);
-                if (distMoved > 4.0) { 
-                    playSound('step', mesh.position);
-                    p.lastStepPos.copy(mesh.position);
-                }
-
+                if (distMoved > 4.0) { playSound('step', mesh.position); p.lastStepPos.copy(mesh.position); }
                 if(mesh.userData.targetPos) mesh.position.lerp(mesh.userData.targetPos, 0.3); 
-                
-                if(mesh.userData.targetRot) {
-                     mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z);
-                }
-                
-                const state = mesh.userData.animState;
-                const limbs = p.limbs;
-                let isEnemyAttacking = false;
-
+                if(mesh.userData.targetRot) { mesh.rotation.set(mesh.userData.targetRot.x, mesh.userData.targetRot.y, mesh.userData.targetRot.z); }
+                const state = mesh.userData.animState; const limbs = p.limbs; let isEnemyAttacking = false;
                 if (mesh.userData.isWhirlwinding) {
-                    mesh.rotation.y += delta * 20;
-                    limbs.armR.rotation.x = -Math.PI/2; limbs.armL.rotation.x = -Math.PI/2;
-                    return;
+                    mesh.rotation.y += delta * 20; limbs.armR.rotation.x = -Math.PI/2; limbs.armL.rotation.x = -Math.PI/2; return;
                 }
-
                 if (mesh.userData.isAttacking) {
                     mesh.userData.attackTimer += delta * 15;
-                    if (mesh.userData.attackTimer > Math.PI) {
-                        mesh.userData.isAttacking = false;
-                        mesh.userData.attackTimer = 0;
-                    } else {
-                        isEnemyAttacking = true;
-                        const progress = mesh.userData.attackTimer / Math.PI;
-                        limbs.armR.rotation.x = -Math.PI/4 - Math.sin(progress * Math.PI) * 1.5; 
+                    if (mesh.userData.attackTimer > Math.PI) { mesh.userData.isAttacking = false; mesh.userData.attackTimer = 0; } else {
+                        isEnemyAttacking = true; const progress = mesh.userData.attackTimer / Math.PI; limbs.armR.rotation.x = -Math.PI/4 - Math.sin(progress * Math.PI) * 1.5; 
                     }
                 }
-
                 if (!isEnemyAttacking) {
                     if (mesh.userData.isBlocking) {
                         limbs.armL.rotation.set(-Math.PI/2, 0, Math.PI/2);
                     } else if (state === 'run' || state === 'walk') {
-                        const speed = state === 'run' ? 8 : 4;
-                        const angle = Math.sin(time * speed);
+                        const speed = state === 'run' ? 8 : 4; const angle = Math.sin(time * speed);
                         limbs.legL.rotation.x = angle; limbs.legR.rotation.x = -angle;
-                        
-                        // Rotazione coscia e stivale del nemico
                         if(limbs.bootL) limbs.bootL.rotation.x = -limbs.legL.rotation.x * 0.6;
                         if(limbs.bootR) limbs.bootR.rotation.x = -limbs.legR.rotation.x * 0.6;
-                        
                         limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
+                        if (p.mesh.userData.weaponMode === 'bow') limbs.armL.rotation.x = -Math.PI/2; // Enemy bow pose
                     } else {
                         limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
-                        if(limbs.bootL) limbs.bootL.rotation.x = 0;
-                        if(limbs.bootR) limbs.bootR.rotation.x = 0;
-                        
+                        if(limbs.bootL) limbs.bootL.rotation.x = 0; if(limbs.bootR) limbs.bootR.rotation.x = 0;
                         limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
+                        if (p.mesh.userData.weaponMode === 'bow') limbs.armL.rotation.x = -Math.PI/2; // Enemy bow pose
                     }
                 }
                 if(mesh.userData.hpBar) mesh.userData.hpBar.parent.lookAt(camera.position);
@@ -901,15 +880,23 @@
 
         function toggleWeaponManual() { toggleWeapon(); }
         function toggleWeapon(force) {
-            if (!force) weaponMode = (weaponMode === 'ranged') ? 'melee' : 'ranged';
-            const isRanged = weaponMode === 'ranged';
-            swordContainer.visible = !isRanged; staffContainer.visible = isRanged;
+            // Logic updated: Q cycles Melee/Ranged, E selects Bow
+            // This function is now mainly for visual updates based on current `weaponMode`
             
-            // Aggiorna la visibilità del player mesh e delle parti
-            const isMelee = !isRanged;
+            const isMelee = weaponMode === 'melee';
+            const isRanged = weaponMode === 'ranged';
+            const isBow = weaponMode === 'bow';
+            
+            swordContainer.visible = isMelee; 
+            staffContainer.visible = isRanged;
+            bowContainer.visible = isBow;
+            
             playerMesh.visible = isMelee;
-            // Se è in terza persona, il player Mesh deve essere visibile, altrimenti no
-            if (isRanged) playerMesh.visible = true; // Prima persona in ranged
+            if (isRanged || isBow) {
+                playerMesh.visible = true; 
+                stopBlocking();
+                euler.x = 0; 
+            }
             
             if(playerLimbs.helmet) playerLimbs.helmet.visible = isMelee;
             if(playerLimbs.torso) playerLimbs.torso.visible = isMelee;
@@ -917,20 +904,33 @@
             if(playerLimbs.legR) playerLimbs.legR.visible = isMelee;
             playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = isMelee; });
             
-            playerLimbs.armL.visible = true;
-            playerLimbs.armR.visible = true;
+            playerLimbs.armL.visible = true; playerLimbs.armR.visible = true;
 
-            document.getElementById('weapon-mode-text').innerText = isRanged ? "RANGED" : "MELEE";
-            document.getElementById('weapon-mode-text').style.color = isRanged ? "cyan" : "orange";
-            document.querySelectorAll('.action-slot:not(.slot-q):not(.slot-r):not(#slot-5):not(#slot-6):not(#slot-7)').forEach(s => s.style.opacity = isRanged ? '1' : '0.4');
+            const modeText = isMelee ? "MELEE" : (isRanged ? "RANGED" : "ARCO");
+            document.getElementById('weapon-mode-text').innerText = modeText;
+            document.getElementById('weapon-mode-text').style.color = isMelee ? "orange" : (isRanged ? "cyan" : "lightgreen");
             
-            if(isRanged) stopBlocking();
+            const opacity = isMelee ? '0.4' : '1';
+            document.querySelectorAll('.action-slot:not(.slot-q):not(.slot-e):not(.slot-r):not(#slot-5):not(#slot-6):not(#slot-7)').forEach(s => s.style.opacity = opacity);
+            
+            // Highlight Active Weapon Slot
+            document.getElementById('slot-q').classList.remove('active');
+            document.getElementById('slot-e').classList.remove('active');
+            
+            if (isMelee || isRanged) {
+                 document.getElementById('slot-q').classList.add('active');
+            } else if (isBow) {
+                 document.getElementById('slot-e').classList.add('active');
+            }
         }
 
         function startCasting(spellId, type, key) {
             if (castingState.active) return;
-            let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0; 
-            if (type === 'attack' && spellId !== 4) {
+            let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0;
+            
+            if (type === 'bow_shot') {
+                castTime = SETTINGS.bowCastTime;
+            } else if (type === 'attack' && spellId !== 4) {
                 let cost = (spellId===1)?SETTINGS.missileCost:(spellId===2)?SETTINGS.pushCost:(spellId===3)?SETTINGS.fireballCost:SETTINGS.beamCost;
                 if (playerStats.mana < cost) { addToLog("Mana insufficiente!", "#555"); return; }
             } else if (type === 'conversion') {
@@ -946,7 +946,11 @@
         function stopCasting(key) {
             if (!castingState.active) return;
             if (castingState.keyHeld === key) {
-                if (castingState.ready) { if (castingState.type === 'attack') executeAttack(castingState.currentSpell); else if (castingState.type === 'conversion') executeConversion(castingState.currentSpell); } else { addToLog("Lancio annullato", "#555"); }
+                if (castingState.ready) { 
+                    if (castingState.type === 'attack') executeAttack(castingState.currentSpell); 
+                    else if (castingState.type === 'conversion') executeConversion(castingState.currentSpell);
+                    else if (castingState.type === 'bow_shot') executeAttack('bow');
+                } else { addToLog("Lancio annullato", "#555"); }
                 castingState.active = false; document.getElementById('cast-bar-container').style.display = 'none';
             }
         }
@@ -956,11 +960,12 @@
             document.getElementById('cast-bar-fill').style.width = (progress * 100) + '%';
             if (progress >= 1 && !castingState.ready) { castingState.ready = true; document.getElementById('cast-text').innerText = "PRONTO!"; document.getElementById('cast-bar-fill').className = 'ready'; }
         }
-        function selectSpell(id) { if(weaponMode !== 'ranged') toggleWeapon(); currentSpell = id; updateStaffColor(id); updateActionBarUI(); }
+        function selectSpell(id) { if(weaponMode !== 'ranged') { weaponMode = 'ranged'; toggleWeapon(true); } currentSpell = id; updateStaffColor(id); updateActionBarUI(); }
         
         function performAttack() {
             if (playerStats.isDead) return;
             if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } 
+            else if (weaponMode === 'bow') { startCasting(null, 'bow_shot', 'Mouse'); }
             else { 
                 if(isBlocking) return; 
                 if (performance.now() - lastAttackTime < SETTINGS.meleeRate) return; 
@@ -970,6 +975,17 @@
         }
         function executeAttack(id) {
             const now = performance.now();
+            
+            if (id === 'bow') {
+                // Arrow shot - Calculate from camera NOW
+                let camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+                const spawnPos = camera.position.clone().add(camDir.multiplyScalar(2));
+                spawnProjectile(5); // 5 is Arrow ID
+                if (socket) socket.emit('playerAttack', { type: 5, origin: spawnPos, direction: camDir });
+                playSound('shoot_bolt'); // Reuse bolt sound
+                return;
+            }
+            
             let cost = (id===1)?SETTINGS.missileCost:(id===2)?SETTINGS.pushCost:(id===3)?SETTINGS.fireballCost:SETTINGS.beamCost;
             if (playerStats.mana < cost) { addToLog("Mana insufficiente!", "#555"); return; }
             if (id === 4 && (now - lastSpikesTime < SETTINGS.spikesCooldown)) { addToLog("Spuntoni in ricarica...", "#aaa"); return; }
@@ -1075,7 +1091,7 @@
             if (isSticky && target) { target.add(group); group.position.set(0, 0, 0); } else { scene.add(group); group.position.copy(target instanceof THREE.Vector3 ? target : target.position); }
             setTimeout(() => { if (isSticky && target) target.remove(group); else scene.remove(group); group.children.forEach(c => { c.geometry.dispose(); }); material.dispose(); }, 1500);
         }
-        function updateActionBarUI() { document.querySelectorAll('.action-slot').forEach(el => el.classList.remove('active')); if (weaponMode === 'ranged') document.getElementById(`slot-${currentSpell}`).classList.add('active'); else document.getElementById('slot-q').classList.add('active'); }
+        function updateActionBarUI() { document.querySelectorAll('.action-slot').forEach(el => el.classList.remove('active')); if (weaponMode === 'ranged') document.getElementById(`slot-${currentSpell}`).classList.add('active'); else if (weaponMode === 'melee') document.getElementById('slot-q').classList.add('active'); else if (weaponMode === 'bow') document.getElementById('slot-e').classList.add('active'); }
         function updateStaffColor(id) { if(!staffContainer || !staffContainer.userData.gem) return; const colors = [0xffffff, 0x00ffff, 0xffffff, 0xff6600, 0xaa00ff]; staffContainer.userData.gem.material.color.setHex(colors[id]); }
         function getStaffTip() { const vec = new THREE.Vector3(); if(staffContainer?.userData.gem) staffContainer.userData.gem.getWorldPosition(vec); else vec.copy(playerMesh.position).add(new THREE.Vector3(0,5,0)); return vec; }
         
@@ -1091,14 +1107,12 @@
                     const hitId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === enemyFound);
                     if(hitId && socket) {
                         let dmg = SETTINGS.beamDmg; 
-                        // Controllo Parata (la parata deve funzionare anche con gli spuntoni)
                         if(otherPlayers[hitId].mesh.userData.isBlocking) {
                             dmg *= (1.0 - SETTINGS.blockMitigation); 
                             createFloatingText(enemyFound.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                         } else {
                             createFloatingText(enemyFound.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                         }
-                        
                         socket.emit('playerHit', { damage: dmg, targetId: hitId }); 
                         socket.emit('playerAttack', { type: 'spikes', origin: new THREE.Vector3(), direction: new THREE.Vector3(), targetId: hitId });
                     }
@@ -1115,32 +1129,62 @@
             let geo, speed, color, radius;
             if (type === 1) { geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; radius = 1.0; } 
             else if (type === 2) { geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; radius = 1.8; } 
-            else { geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; radius = 3.0; } 
+            else if (type === 3) { geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; radius = 3.0; }
+            else if (type === 5) { 
+                geo = new THREE.CylinderGeometry(0.1, 0.1, 4); 
+                // RUOTA LA GEOMETRIA PER ALLINEARLA ALL'ASSE Z (Orizzontale)
+                geo.rotateX(-Math.PI / 2); 
+                color = 0x8B4513; speed = SETTINGS.arrowSpeed; radius = 0.5; 
+            } 
+            
             const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
-            const spawnPos = getStaffTip();
+            
+            let spawnPos;
+            if(type === 5 && weaponMode === 'bow') {
+                 const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+                 spawnPos = camera.position.clone().add(camDir.multiplyScalar(2));
+            } else {
+                 spawnPos = getStaffTip();
+            }
+
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
             const hits = raycaster.intersectObjects([...obstacles], true);
             let targetPoint;
             if(hits.length > 0) { targetPoint = hits[0].point; } else { const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir); targetPoint = camera.position.clone().add(camDir.multiplyScalar(100)); }
+            
             const velocityDir = new THREE.Vector3().subVectors(targetPoint, spawnPos).normalize();
             proj.position.copy(spawnPos);
-            const light = new THREE.PointLight(color, 1, 30); proj.add(light);
-            // Salvo il raggio per la collisione
-            proj.userData = { velocity: velocityDir.multiplyScalar(speed), life: 2.0, type: type, isMine: true, radius: radius };
+            
+            if(type === 5) proj.lookAt(targetPoint);
+            else { const light = new THREE.PointLight(color, 1, 30); proj.add(light); }
+
+            proj.userData = { velocity: velocityDir.multiplyScalar(speed), life: (type===5 ? 5.0 : 2.0), type: type, isMine: true, radius: radius };
             scene.add(proj); projectiles.push(proj);
         }
 
         function spawnEnemyProjectile(startPos, direction, type) {
             let color = 0xff0000; let speed = 900; let radius = 1.0;
-            if (type === 1) { color = 0x00ffff; speed = SETTINGS.missileSpeed; radius = 1.0; } 
-            else if (type === 2) { color = 0xffffff; speed = SETTINGS.pushSpeed; radius = 1.8; } 
-            else if (type === 3) { color = 0xff6600; speed = SETTINGS.fireballSpeed; radius = 3.0; }
-            const geo = new THREE.SphereGeometry(radius); 
+            let geo;
+            if (type === 1) { geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; radius = 1.0; } 
+            else if (type === 2) { geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; radius = 1.8; } 
+            else if (type === 3) { geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; radius = 3.0; }
+            else if (type === 5) { 
+                geo = new THREE.CylinderGeometry(0.1, 0.1, 4); 
+                geo.rotateX(-Math.PI / 2); 
+                color = 0x8B4513; speed = SETTINGS.arrowSpeed; radius = 0.5; 
+            }
+            
             const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
-            const light = new THREE.PointLight(color, 1, 20); proj.add(light);
-            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false, radius: radius };
+            
+            if(type === 5) {
+                proj.lookAt(proj.position.clone().add(dirVec));
+            } else {
+                const light = new THREE.PointLight(color, 1, 20); proj.add(light);
+            }
+
+            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: (type===5 ? 5.0 : 3.0), type: type, isMine: false, radius: radius };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
 
@@ -1163,8 +1207,6 @@
                         const dz = p.position.z - op.mesh.position.z;
                         const distXZ = Math.sqrt(dx*dx + dz*dz);
                         const dy = p.position.y - op.mesh.position.y;
-
-                        // Hit detection: distanza xz e altezza (semplificata)
                         if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
                             hit = true; hitTarget = op.mesh; hitPoint = p.position.clone();
                         }
@@ -1182,9 +1224,9 @@
                         let dmg = 0;
                         if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
                         else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
-                        else if (p.userData.type === 2) dmg = 10; 
+                        else if (p.userData.type === 2) dmg = 10;
+                        else if (p.userData.type === 5) dmg = SETTINGS.arrowDmg; 
 
-                        // Calcola danno mitigato se sta parando
                         let mitigatedDmg = dmg;
                         if(otherPlayers[targetId].mesh.userData.isBlocking) {
                              mitigatedDmg *= (1.0 - SETTINGS.blockMitigation); 
@@ -1198,14 +1240,11 @@
                                 spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushVisualRadius);
                                 checkShockwaveAoE(hitPoint);
                             } else if (p.userData.type === 3) { 
-                                // Explode on hit (even if blocked)
                                 spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                                
-                                // La logica push/damage viene gestita nel server tramite playerPushed/playerHit
                                 socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: mitigatedDmg });
                                 checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
-                            } else if (p.userData.type === 1) { 
+                            } else { 
                                 socket.emit('playerHit', { damage: mitigatedDmg, targetId: targetId });
                             }
                         }
@@ -1216,18 +1255,14 @@
                     const dz = p.position.z - playerMesh.position.z;
                     const distXZ = Math.sqrt(dx*dx + dz*dz);
                     const dy = p.position.y - playerMesh.position.y;
-                    
-                    // Hit detection: contatto con il player locale
                     if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
                          hit = true; hitPoint = playerMesh.position;
                          playSound('hit');
-                         // Il danno e il flash sono gestiti dalla risposta del server playerHitResponse
                     }
                 }
 
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; hitPoint.y = 0; p.position.y = 0;
-
                     if (p.userData.isMine) {
                         if (p.userData.type === 2) {
                             spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushVisualRadius); 
@@ -1240,12 +1275,15 @@
                 }
                 
                 if (hit) { 
-                    // Se non è l'onda d'urto (tipo 2) mostro l'esplosione
-                    if(p.userData.type !== 2) spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? SETTINGS.fireballRadius : 5); 
+                    if(p.userData.type !== 2 && p.userData.type !== 5) spawnExplosionVisual(hitPoint, p.material.color.getHex(), p.userData.type === 3 ? SETTINGS.fireballRadius : 5); 
                     scene.remove(p); projectiles.splice(i, 1); 
                 } else { 
                     p.position.add(move); p.userData.life -= delta; 
-                    p.userData.velocity.y -= SETTINGS.gravity * 0.1 * delta;
+                    
+                    let gravity = (p.userData.type === 5) ? SETTINGS.arrowGravity : SETTINGS.gravity;
+                    p.userData.velocity.y -= gravity * delta;
+                    
+                    if (p.userData.type === 5) p.lookAt(p.position.clone().add(p.userData.velocity)); 
                     if (p.userData.life <= 0) { scene.remove(p); projectiles.splice(i, 1); }
                 }
             }
@@ -1280,7 +1318,6 @@
             Object.values(otherPlayers).forEach(op => {
                 if (op.mesh.position.distanceTo(origin) < radius) {
                     const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
-                    
                     let finalDmg = damage;
                     if(op.mesh.userData.isBlocking) {
                         finalDmg *= (1.0 - SETTINGS.blockMitigation); 
@@ -1288,7 +1325,6 @@
                     } else {
                         createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
                     }
-
                     if (pushBack) {
                          const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
                          const forceVec = dir.multiplyScalar(SETTINGS.pushForce * 0.5); 
@@ -1321,7 +1357,6 @@
                         createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                     }
                     if (socket) {
-                        // Spinta ridotta per il melee
                         const pushVec = new THREE.Vector3().subVectors(p.mesh.position, origin).normalize().multiplyScalar(SETTINGS.meleeKnockbackForce);
                          socket.emit('playerPushed', { targetId: id, forceVec: pushVec, damage: dmg });
                     }
@@ -1348,7 +1383,7 @@
                 const speed = 20; swordContainer.rotation.z = -Math.PI/2; swordContainer.rotation.y += delta * speed; swordContainer.rotation.x = Math.PI/2;
                 playerLimbs.armR.rotation.x = -Math.PI/2; playerLimbs.armL.rotation.x = -Math.PI/2; return; 
             }
-            if(isAttacking) { attackTimer += delta * 15; if(attackTimer > Math.PI) isAttacking = false; }
+            if(isAttacking && weaponMode !== 'bow') { attackTimer += delta * 15; if(attackTimer > Math.PI) isAttacking = false; }
             if(weaponMode==='melee') {
                 let targetRotZ = 0; 
                 let targetRotY = 0; 
@@ -1360,17 +1395,11 @@
                     armRotX = -Math.PI/4; 
                     targetRotZ = Math.PI/2; 
                     targetRotY = sweep * 1.5; 
-                    
-                    // Durante l'attacco, la spada ruota
                     swordContainer.rotation.z = targetRotZ; 
                     swordContainer.rotation.y = targetRotY + Math.PI; 
                     swordContainer.rotation.x = Math.PI/2; 
                     playerLimbs.armR.rotation.x = armRotX;
                 } else { 
-                    // IDLE MELEE: Braccio giù, spada punta avanti
-                    // Il braccio è a rotation.x = -0.1 (quasi giù)
-                    // Per far puntare la spada in avanti (-Z del mondo), dobbiamo ruotare il container
-                    // Se braccio è giù (-Y locale del braccio punta giù), la spada deve essere ruotata di 90 gradi su X locale
                     swordContainer.rotation.set(-Math.PI/2, Math.PI, 0); 
                 }
             }
@@ -1378,72 +1407,37 @@
 
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
-            
-            // Logica rigenerazione stamina
             let isRegenStaminaBlocked = isBlocking || isWhirlwinding;
-            
             if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina > 0 && !isBlocking) { 
-                playerStats.stamina -= SETTINGS.sprintStaminaCostPerSec * delta; // Costo scatto (1/sec)
-                isRegenStaminaBlocked = true; // Blocca la rigenerazione durante lo scatto
+                playerStats.stamina -= SETTINGS.sprintStaminaCostPerSec * delta; isRegenStaminaBlocked = true; 
             }
-            
             if (isBlocking) {
-                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
-                if (playerStats.stamina <= 0) stopBlocking();
-                isRegenStaminaBlocked = true; // Blocca la rigenerazione durante la parata
+                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; if (playerStats.stamina <= 0) stopBlocking(); isRegenStaminaBlocked = true; 
             } 
-            
             if (!isRegenStaminaBlocked) {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             }
-
             let speed = SETTINGS.speed;
-            
             if (velocity.y != 0) playerStats.isFalling = true;
             if(isBlocking) speed *= 0.5;
-
-            // Applica il moltiplicatore di velocità per lo scatto se è attivo e c'è stamina
-            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina > 0 && !isBlocking) { 
-                speed*=SETTINGS.sprintMulti; 
-            }
+            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina > 0 && !isBlocking) { speed*=SETTINGS.sprintMulti; }
             
             velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
             
             const rotY = playerMesh.rotation.y;
             let moving = false;
             const moveVec = new THREE.Vector3();
-
             if (moveForward) { moveVec.add(new THREE.Vector3(-Math.sin(rotY),0,-Math.cos(rotY))); moving=true; }
             if (moveBackward) { moveVec.add(new THREE.Vector3(-Math.sin(rotY),0,-Math.cos(rotY)).negate()); moving=true; }
             if (moveRight) { moveVec.add(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY))); moving=true; }
             if (moveLeft) { moveVec.add(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)).negate()); moving=true; }
-            
             if(moving) {
-                moveVec.normalize();
-                velocity.addScaledVector(moveVec, speed * delta);
-                if(!playerStats.isFalling) {
-                    distanceSinceStep += speed * delta;
-                    if(distanceSinceStep > 400.0) { 
-                        playSound('step');
-                        distanceSinceStep = 0;
-                    }
-                }
+                moveVec.normalize(); velocity.addScaledVector(moveVec, speed * delta);
+                if(!playerStats.isFalling) { distanceSinceStep += speed * delta; if(distanceSinceStep > 400.0) { playSound('step'); distanceSinceStep = 0; } }
             }
-
             playerMesh.position.addScaledVector(velocity, delta);
-            
-            if(playerMesh.position.y < 6) { 
-                if (velocity.y <= 0) {
-                    playerMesh.position.y = 6; 
-                    velocity.y = 0; 
-                    canJump = true; 
-                    playerStats.isFalling = false; 
-                }
-            }
-            
-            // Clamp stamina to max/min
+            if(playerMesh.position.y < 6) { if (velocity.y <= 0) { playerMesh.position.y = 6; velocity.y = 0; canJump = true; playerStats.isFalling = false; } }
             playerStats.stamina = Math.max(0, Math.min(playerStats.maxStamina, playerStats.stamina));
-            
             obstacles.forEach(o => { 
                 const box = new THREE.Box3().setFromObject(o);
                 const playerPos = playerMesh.position.clone(); playerPos.y = box.min.y + 1; 
@@ -1458,20 +1452,14 @@
             }
         }
         function updateCamera() {
-            // Posizione della testa
             const headPos = playerMesh.position.clone().add(new THREE.Vector3(0,8.5,0));
-            
-            if (weaponMode === 'ranged') { 
-                // Prima persona
+            if (weaponMode === 'ranged' || weaponMode === 'bow') { 
                 camera.position.copy(headPos).addScaledVector(new THREE.Vector3(0,0,-1).applyEuler(euler), 0.5); 
                 camera.quaternion.setFromEuler(euler); 
                 playerMesh.visible = true; 
             } else { 
-                // Terza persona: Cam ALZATA (offset.y = 16)
                 const offset = new THREE.Vector3(0, 16, 25).applyEuler(new THREE.Euler(euler.x, euler.y, 0, 'YXZ')); 
                 camera.position.copy(headPos).add(offset); 
-                
-                // Punto di mira ALZATO (y = 12) per staccare il mirino dalla testa
                 const lookAtPoint = playerMesh.position.clone().add(new THREE.Vector3(0, 12, 0)); 
                 camera.lookAt(lookAtPoint); 
             }
@@ -1485,7 +1473,17 @@
             const instrModal = document.getElementById('instructions-modal');
             if(instrModal) {
                 const closeBtn = instrModal.querySelector('.close-modal');
-                if(closeBtn) closeBtn.addEventListener('click', () => { instrModal.style.display = 'none'; toggleAudio(); try { document.body.requestPointerLock(); } catch(e){} });
+                if(closeBtn) closeBtn.addEventListener('click', () => { 
+                    instrModal.style.display = 'none'; 
+                    toggleAudio(); 
+                    try { 
+                        const promise = document.body.requestPointerLock(); 
+                        // Ensure we handle the promise if it exists
+                        if (promise && typeof promise.catch === 'function') {
+                            promise.catch(e => { /* Quietly fail or warn */ });
+                        }
+                    } catch(e){ /* Sync error ignore */ } 
+                });
             }
         }
         function setupControls() {
@@ -1495,17 +1493,26 @@
                 switch(e.code) {
                     case KEYBINDS.MOVE_FORWARD: moveForward=true; break; case KEYBINDS.MOVE_LEFT: moveLeft=true; break; case KEYBINDS.MOVE_BACKWARD: moveBackward=true; break; case KEYBINDS.MOVE_RIGHT: moveRight=true; break;
                     case KEYBINDS.JUMP: 
-                        // JUMP: Cost & Cooldown Logic
                         const now = performance.now();
                         if(canJump && (now - lastJumpTime > SETTINGS.jumpCooldown) && playerStats.stamina >= SETTINGS.jumpCost) {
-                            velocity.y += SETTINGS.jumpForce; 
-                            playerStats.stamina -= SETTINGS.jumpCost;
-                            lastJumpTime = now;
-                            canJump = false;
+                            velocity.y += SETTINGS.jumpForce; playerStats.stamina -= SETTINGS.jumpCost; lastJumpTime = now; canJump = false;
                         }
                         break;
                     case KEYBINDS.SPRINT: isSprinting=true; break; 
-                    case KEYBINDS.WEAPON_SWITCH: if (weaponMode === 'melee') { performWhirlwind(); } else { toggleWeapon(); } break; 
+                    case KEYBINDS.WEAPON_SWITCH: 
+                        // Se sono già in Melee, faccio il Whirlwind
+                        if (weaponMode === 'melee') { 
+                            performWhirlwind(); 
+                        } else { 
+                            // Altrimenti passo alla modalità Melee
+                            weaponMode = 'melee'; 
+                            toggleWeapon(true); 
+                        } 
+                        break;
+                    case KEYBINDS.BOW_EQUIP:
+                        // Select Bow directly
+                        if (weaponMode !== 'bow') { weaponMode = 'bow'; toggleWeapon(true); }
+                        break;
                     case KEYBINDS.HEAL: performHeal(); break;
                     case KEYBINDS.SPELL_1: selectSpell(1); startCasting(1, 'attack', 'Digit1'); break; case KEYBINDS.SPELL_2: selectSpell(2); startCasting(2, 'attack', 'Digit2'); break; 
                     case KEYBINDS.SPELL_3: selectSpell(3); startCasting(3, 'attack', 'Digit3'); break; case KEYBINDS.SPELL_4: selectSpell(4); startCasting(4, 'attack', 'Digit4'); break;
@@ -1524,11 +1531,12 @@
             document.addEventListener('mousedown', (e) => { 
                 if(document.pointerLockElement===document.body && !playerStats.isDead) {
                     if (e.button === 0) { 
-                        if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } else { performAttack(); } 
-                    } else if (e.button === 2) { // RIGHT CLICK
-                        // Auto-switch to Melee
-                        if (weaponMode === 'ranged') {
-                            toggleWeapon(false);
+                        if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); }
+                        else if (weaponMode === 'bow') { startCasting(null, 'bow_shot', 'Mouse'); }
+                        else { performAttack(); } 
+                    } else if (e.button === 2) { 
+                        if (weaponMode === 'ranged' || weaponMode === 'bow') { 
+                            weaponMode = 'melee'; toggleWeapon(true); // Auto-switch to Melee on block attempt
                         }
                         startBlocking();
                     }
@@ -1536,7 +1544,10 @@
             });
             document.addEventListener('mouseup', (e) => { 
                 if (!playerStats.isDead) {
-                    if (e.button === 0 && weaponMode === 'ranged') stopCasting('Mouse');
+                    if (e.button === 0) {
+                         if(weaponMode === 'ranged') stopCasting('Mouse');
+                         if(weaponMode === 'bow') stopCasting('Mouse');
+                    }
                     if (e.button === 2) stopBlocking();
                 }
             });
@@ -1561,11 +1572,13 @@
             const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
             if (!playerStats.isDead) { 
                 try {
-                    updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
+                    updatePhysics(delta); 
+                    updateCamera(); // Moved here to fix lag
+                    updateProjectiles(delta); updateCasting(delta);
                     updateConversions(delta); updateFloatingTexts(delta);
                     updateSwordAnimation(delta); 
                 } catch(e) { console.error(e); }
-                updateCamera(); 
+                // updateCamera(); // Previously here
             }
             updateAnimations(delta); 
             updateUI(); renderer.render(scene, camera);
