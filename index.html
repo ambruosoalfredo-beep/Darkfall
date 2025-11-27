@@ -8,7 +8,6 @@
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
         #screen-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; opacity: 0; transition: opacity 0.1s ease-out; }
         
-        /* NUOVO STILE DANNI */
         .floating-text { 
             position: absolute; pointer-events: none; font-weight: 900; 
             font-family: 'Arial Black', sans-serif; 
@@ -172,7 +171,7 @@
         const SETTINGS = { 
             speed: 400.0, sprintMulti: 1.4, jumpForce: 250.0, gravity: 800.0, 
             missileSpeed: 900.0, 
-            missileDmg: 5, // DANNO RIDOTTO
+            missileDmg: 5, 
             missileCost: 5,
             
             pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, pushRadius: 30, 
@@ -186,7 +185,7 @@
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
             spikesCooldown: 3000,
-            blockStaminaCost: 0.5, // RIDOTTO
+            blockStaminaCost: 0.5, 
             blockMitigation: 0.8
         };
         
@@ -237,7 +236,6 @@
                     }
                 });
 
-                // NUOVO: EFFETTI REMOTI
                 socket.on('remoteEffect', (data) => {
                     if (otherPlayers[data.id]) {
                         let color = 0xffffff;
@@ -251,7 +249,6 @@
                         scene.add(light);
                         setTimeout(() => scene.remove(light), 300);
                         
-                        // Audio
                         if(data.type === 'heal') playSound('heal', otherPlayers[data.id].mesh.position);
                     }
                 });
@@ -309,7 +306,7 @@
             } else { console.warn("Modalità Offline"); document.getElementById('connection-status').innerText = "OFFLINE"; }
         }
 
-        // --- FUNCTIONS --- (Setup, Graphics, Logic)
+        // --- FUNCTIONS ---
 
         const KEYBINDS = { MOVE_FORWARD: 'KeyW', MOVE_LEFT: 'KeyA', MOVE_BACKWARD: 'KeyS', MOVE_RIGHT: 'KeyD', JUMP: 'Space', SPRINT: 'ShiftLeft', WEAPON_SWITCH: 'KeyQ', SPELL_1: 'Digit1', SPELL_2: 'Digit2', SPELL_3: 'Digit3', SPELL_4: 'Digit4', HEAL: 'KeyR', CONVERT_1: 'Digit5', CONVERT_2: 'Digit6', CONVERT_3: 'Digit7' };
         const STORAGE_KEY = 'darkfall_global_save'; 
@@ -417,10 +414,14 @@
             const blade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 18, 0.2), new THREE.MeshStandardMaterial({color:0xecf0f1})); blade.position.y=10; swordGroup.add(blade);
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
-            swordGroup.position.set(0,-5,0.5); swordGroup.rotation.x=Math.PI/2; swordGroup.visible = false; armR.add(swordGroup);
+            // ROTAZIONE SPADA CORRETTA:
+            swordGroup.position.set(0,-5,0.5); swordGroup.rotation.x=Math.PI/2; swordGroup.rotation.y=Math.PI; // FLIP
+            swordGroup.visible = false; armR.add(swordGroup);
 
             const shield = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4 }));
-            shield.position.set(0, -3, 3); shield.visible = false; armL.add(shield);
+            // POSIZIONE SCUDO CORRETTA:
+            shield.position.set(3, -2, 0); shield.rotation.y = -Math.PI/2; // Side
+            shield.visible = false; armL.add(shield);
 
             mesh.position.set(info.position.x, info.position.y, info.position.z);
             const label = createPlayerLabel(info.username); label.position.y = 14; label.userData.isLabel = true; mesh.add(label); mesh.userData.hpBar = label.userData.hpBar; 
@@ -456,7 +457,12 @@
         function updateEnemyShield(p, blocking) {
             if(p.weaponMeshes && p.weaponMeshes.shield) {
                 p.weaponMeshes.shield.visible = blocking;
-                if(blocking) p.limbs.armL.rotation.x = -Math.PI/3;
+                // Posizione braccio parata
+                if(blocking) {
+                    p.limbs.armL.rotation.set(-Math.PI/2, 0, Math.PI/2);
+                } else {
+                    p.limbs.armL.rotation.set(0,0,0);
+                }
             }
         }
 
@@ -482,7 +488,9 @@
             const blade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 18, 0.2), new THREE.MeshStandardMaterial({color:0xecf0f1, metalness:0.9})); blade.position.y=10; swordContainer.add(blade);
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordContainer.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordContainer.add(hilt);
-            swordContainer.position.set(0,-5,0.5); swordContainer.rotation.x=Math.PI/2; swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
+            // ROTAZIONE LOCALE
+            swordContainer.position.set(0,-5,0.5); swordContainer.rotation.x=Math.PI/2; swordContainer.rotation.y=Math.PI; // FLIP
+            swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
             const trailGeo = new THREE.RingGeometry(8, 12, 32, 1, 0, Math.PI);
             const trailMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0, side: THREE.DoubleSide });
             const trail = new THREE.Mesh(trailGeo, trailMat); trail.rotation.x = -Math.PI/2; trail.position.y = 10; swordContainer.add(trail); swordContainer.userData.trail = trail;
@@ -496,7 +504,8 @@
         }
         function createShield() {
             shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
-            shieldMesh.position.set(0, -3, 3);
+            // POSIZIONE LOCALE
+            shieldMesh.position.set(3, -2, 0); shieldMesh.rotation.y = -Math.PI/2;
             shieldMesh.visible = false;
             playerLimbs.armL.add(shieldMesh);
         }
@@ -507,7 +516,8 @@
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
                 mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
-                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 2.0+random(), isGib: isGibs });
+                // LIFE impostata a 1.0 (1 secondo) per i pixel transfert
+                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 1.0, isGib: isGibs });
             }
         }
         function updateParticles(delta) {
@@ -543,11 +553,17 @@
                 scale += 0.2; sphere.scale.setScalar(scale); sphere.material.opacity -= 0.05;
                 if (sphere.material.opacity <= 0) { clearInterval(expand); scene.remove(sphere); scene.remove(light); geometry.dispose(); material.dispose(); }
             }, 30);
+            
+            // Whirlwind effect cleaner logic (if used for whirlwind)
+            if(color === 0xffffff && radius === SETTINGS.whirlwindRadius) {
+                 setTimeout(() => { 
+                     if(sphere.parent) scene.remove(sphere); 
+                 }, 1000); // 1 sec pulizia forzata
+            }
         }
         function flashScreen(colorStr) { const flash = document.getElementById('screen-flash'); flash.style.backgroundColor = colorStr; flash.style.opacity = 0.4; setTimeout(() => { flash.style.opacity = 0; }, 150); }
         function spawnGlowEffect(color) {
             let spawnPos;
-            // Se ranged, effetto davanti alla camera (non sul player che è invisibile)
             if(weaponMode === 'ranged') {
                 const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
                 spawnPos = camera.position.clone().add(camDir.multiplyScalar(3));
@@ -617,26 +633,38 @@
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
                 playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
+                // --- MIGLIORATA ANIMAZIONE MELEE LOCALE (Fluida come i nemici) ---
                 if (!canJump && !playerStats.isFalling) { 
+                    // Salto
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
-                    if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; playerLimbs.torso.rotation.x = 0.2; 
+                    if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
                 } else if (isMoving) { 
+                    // Corsa/Camminata fluida
                     const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
-                    playerLimbs.legL.rotation.x = angle * legAmp; playerLimbs.legR.rotation.x = -angle * legAmp; 
-                    if (!isAttacking && !isWhirlwinding && !isBlocking) { playerLimbs.armL.rotation.x = -angle * armAmp; playerLimbs.armR.rotation.x = angle * armAmp; }
+                    
+                    playerLimbs.legL.rotation.x = angle * legAmp; 
+                    playerLimbs.legR.rotation.x = -angle * legAmp; 
+                    
+                    if (!isAttacking && !isWhirlwinding && !isBlocking) { 
+                        playerLimbs.armL.rotation.x = -angle * armAmp; 
+                        playerLimbs.armR.rotation.x = angle * armAmp; 
+                    }
                     playerLimbs.torso.rotation.x = isSprintingActive ? 0.3 : 0.1; 
-                    playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.rotation.x = isSprintingActive ? 0.3 : 0.1; });
                 } else {
+                    // Idle
                     playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; 
-                    if(!isAttacking && !isWhirlwinding && !isBlocking) { playerLimbs.armL.rotation.x = Math.sin(time)*0.05; playerLimbs.armR.rotation.x = Math.cos(time)*0.05; }
-                    playerLimbs.torso.rotation.x = 0; playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.rotation.x = 0; });
+                    if(!isAttacking && !isWhirlwinding && !isBlocking) { 
+                        playerLimbs.armL.rotation.x = Math.sin(time)*0.05; 
+                        playerLimbs.armR.rotation.x = Math.cos(time)*0.05; 
+                    }
+                    playerLimbs.torso.rotation.x = 0;
                 }
             }
 
             if (isBlocking) {
-                playerLimbs.armL.rotation.x = -Math.PI / 3;
-                playerLimbs.armL.rotation.z = Math.PI / 6;
+                // Parata: Braccio avanti a difesa (non indietro)
+                playerLimbs.armL.rotation.set(-Math.PI/2, 0, Math.PI/2);
                 shieldMesh.visible = true;
             } else {
                 playerLimbs.armL.rotation.z = 0;
@@ -646,13 +674,10 @@
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
                 
-                // --- NUOVA ANIMAZIONE MORTE NEMICO ---
                 if (p.isDead) { 
-                    // Ruota su asse X per sdraiarsi (Face up o down a seconda di rotazione)
                     if (mesh.rotation.x > -Math.PI / 2) {
                         mesh.rotation.x = Math.max(-Math.PI / 2, mesh.rotation.x - delta * 4);
                     }
-                    // Abbassa al suolo (da 6 a 1.5 circa)
                     if (mesh.position.y > 1.5) {
                         mesh.position.y -= delta * 10;
                     }
@@ -695,7 +720,7 @@
 
                 if (!isEnemyAttacking) {
                     if (mesh.userData.isBlocking) {
-                        limbs.armL.rotation.x = -Math.PI/3;
+                        limbs.armL.rotation.set(-Math.PI/2, 0, Math.PI/2);
                     } else if (state === 'run' || state === 'walk') {
                         const speed = state === 'run' ? 8 : 4;
                         const angle = Math.sin(time * speed);
@@ -716,15 +741,12 @@
             const isRanged = weaponMode === 'ranged';
             swordContainer.visible = !isRanged; staffContainer.visible = isRanged;
             
-            // --- GESTIONE VISIBILITA' LOCALE (Ranged = Invisibile per me) ---
-            // Nota: I nemici continuano a vedere il mesh completo via rete
             if(playerLimbs.helmet) playerLimbs.helmet.visible = !isRanged;
             if(playerLimbs.torso) playerLimbs.torso.visible = !isRanged;
             if(playerLimbs.legL) playerLimbs.legL.visible = !isRanged;
             if(playerLimbs.legR) playerLimbs.legR.visible = !isRanged;
             playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
             
-            // Le braccia restano visibili in FPS (di solito)
             playerLimbs.armL.visible = true;
             playerLimbs.armR.visible = true;
 
@@ -800,10 +822,8 @@
             document.getElementById(slotId).classList.add('channeling'); 
             setTimeout(() => document.getElementById(slotId).classList.remove('channeling'), 5000);
             
-            // Effetti
             let color = (type === 1) ? 0xff0000 : (type === 2) ? 0x0000ff : 0xffff00;
             spawnGlowEffect(color);
-            // Invia al server
             if(socket) socket.emit('playerEffect', { type: (type===1?'heal':(type===2?'mana':'stamina')) });
         }
         window.performConversion = performConversion;
@@ -854,7 +874,10 @@
             if (now - lastWhirlwindTime < SETTINGS.whirlwindCooldown) { addToLog("Whirlwind in ricarica...", "#aaa"); return; }
             if (playerStats.stamina < SETTINGS.whirlwindCost) { addToLog("Stamina insufficiente!", "#555"); return; }
             playerStats.stamina -= SETTINGS.whirlwindCost; lastWhirlwindTime = now; if (!canJump) return; velocity.y += 150; canJump = false; isWhirlwinding = true; setTimeout(() => { isWhirlwinding = false; }, 500);
-            spawnParticles(playerMesh.position, 0xffffff, 30, 40, 0.5, false); addToLog("TURBINE ATTIVATO!", "spell-cast"); 
+            
+            // Whirlwind Visual (con cleanup 1s)
+            spawnExplosionVisual(playerMesh.position, 0xffffff, SETTINGS.whirlwindRadius);
+            addToLog("TURBINE ATTIVATO!", "spell-cast"); 
             playSound('whirlwind');
             
             if (socket) socket.emit('playerAttack', { type: 'whirlwind', origin: playerMesh.position, direction: new THREE.Vector3() });
@@ -927,17 +950,6 @@
             scene.add(proj); projectiles.push(proj);
         }
 
-        function spawnEnemyProjectile(startPos, direction, type) {
-            let color = 0xff0000; let speed = 900;
-            if (type === 1) { color = 0x00ffff; speed = SETTINGS.missileSpeed; } else if (type === 2) { color = 0xffffff; speed = SETTINGS.pushSpeed; } else if (type === 3) { color = 0xff6600; speed = SETTINGS.fireballSpeed; }
-            const geo = new THREE.SphereGeometry(type === 2 ? 1.8 : (type===3 ? 3.0 : 1.0)); const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
-            proj.position.copy(startPos);
-            const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
-            const light = new THREE.PointLight(color, 1, 20); proj.add(light);
-            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
-            scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
-        }
-
         function updateProjectiles(delta) {
             const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             
@@ -951,7 +963,6 @@
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
                 
-                // MIEI PROIETTILI
                 if (p.userData.isMine) {
                     Object.values(otherPlayers).forEach(op => {
                         const dx = p.position.x - op.mesh.position.x;
@@ -982,7 +993,6 @@
                              dmg *= (1.0 - SETTINGS.blockMitigation); 
                              createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                         } else {
-                             // Numeretto Danno (Approssimato visivo per me)
                              createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                         }
 
@@ -993,10 +1003,9 @@
                             } else if (p.userData.type === 3) { 
                                 // FIREBALL HIT (Direct)
                                 spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                                // Direct damage + Knockup
                                 socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
-                                // AOE Splash (20% damage)
-                                checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.2, false);
+                                // AOE Splash (5 HP fisso come richiesto)
+                                checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
                                 addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
                             } else if (p.userData.type === 1) { 
                                 socket.emit('playerHit', { damage: dmg, targetId: targetId });
@@ -1004,7 +1013,6 @@
                         }
                     }
                 } 
-                // NEMICI VS ME
                 else {
                     const dx = p.position.x - playerMesh.position.x;
                     const dz = p.position.z - playerMesh.position.z;
@@ -1017,7 +1025,6 @@
                     }
                 }
 
-                // COLLISIONE TERRA / ESPLOSIONE SPLASH
                 if(!hit && nextPos.y <= 0) { 
                     hit=true; hitPoint.y = 0; p.position.y = 0;
 
@@ -1027,8 +1034,8 @@
                             checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                            // Fireball Ground Splash (20% dmg)
-                            checkSplashDamage(hitPoint, SETTINGS.fireballRadius, SETTINGS.fireballDmg * 0.2, false);
+                            // Fireball Ground Splash (5 HP fissi)
+                            checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
                         }
                     }
                 }
@@ -1144,7 +1151,8 @@
                 let targetRotZ = -Math.PI/2; let targetRotY = 0; let armRotX = 0;
                 if (isAttacking) { const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; } 
                 else { const time = performance.now() * 0.002; targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; targetRotY = 0; }
-                swordContainer.rotation.z = targetRotZ; swordContainer.rotation.y = targetRotY; swordContainer.rotation.x = Math.PI/2; 
+                swordContainer.rotation.z = targetRotZ; swordContainer.rotation.y = targetRotY + Math.PI; // Manteniamo il flip
+                swordContainer.rotation.x = Math.PI/2; 
                 if(isAttacking) playerLimbs.armR.rotation.x = armRotX;
             }
         }
@@ -1153,7 +1161,7 @@
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
             if (isBlocking) {
-                playerStats.stamina -= SETTINGS.blockStaminaCost * delta; // 0.5 al sec (corretto sopra)
+                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
                 if (playerStats.stamina <= 0) stopBlocking();
             } else {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
