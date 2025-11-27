@@ -83,9 +83,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // NUOVO: Sincronizzazione Effetti Visivi (Cure, Conversioni)
-    socket.on('playerEffect', (data) => {
-        // data: { type: 'heal' | 'mana' | 'stamina', origin: {x,y,z} }
+    socket.on('remoteEffect', (data) => {
         socket.broadcast.emit('remoteEffect', { id: socket.id, ...data });
     });
 
