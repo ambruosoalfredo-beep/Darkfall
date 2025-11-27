@@ -163,9 +163,6 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         
-        // GLOBAL RAYCASTER FOR PROJECTILE COLLISION CHECK (Fix for passing through)
-        const projRaycaster = new THREE.Raycaster();
-
         // Jump Vars
         let lastJumpTime = 0;
         let lastFootstepTime = 0;
@@ -180,24 +177,21 @@
             
             // JUMP SETTINGS
             jumpCooldown: 1000,
-            jumpCost: 15, // Costo richiesto 15
+            jumpCost: 20,
 
             missileSpeed: 900.0, 
             missileDmg: 5, 
             missileCost: 5,
             
-            // ONDA (Shockwave)
+            // ONDA (Shockwave) Visual Reduced
             pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, 
-            pushRadius: 15.0, // Hitbox ingrandita (era 12) per facilitare il colpo
-            visualRadius: 6.0, // Visual ridotto (era 10) per animazione più compatta
+            pushRadius: 25, // Reduced from 45 (User req: smaller visual)
             
             fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
             beamDmg: 25, beamCost: 5, beamRange: 200, 
-            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 15, // Danno 15
-            manaRegen: 2.0, 
-            sprintCostPerSec: 1.0, // 1 stamina/sec esatto
-            staminaRegen: 3.0, 
+            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, 
+            manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, 
             healAmount: 20, healCost: 10, healCooldown: 10000, 
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
@@ -301,11 +295,10 @@
                         playerStats.hp = data.hp; updateUI(); 
                         if (diff < 0) {
                             flashScreen('red'); 
-                            spawnParticles(playerMesh.position, 0x8a0303, 30, 20, 0.4, false); // Self blood on hit
                         }
                     } else if (otherPlayers[data.id]) { 
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp); 
-                         spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 30, 30, 0.6, false); // Enemy blood on hit
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); 
                     } 
                 });
                 
@@ -314,15 +307,10 @@
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
-                        spawnParticles(playerMesh.position, 0x8a0303, 200, 100, 1.0, true); // Massive Death explosion
-                        playerMesh.visible = false; // Hide self
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
-                        // Big Blood Explosion (Visible to all)
-                        spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 200, 100, 1.2, true); 
-                        // Hide mesh immediately to simulate "disappearing"
-                        otherPlayers[data.id].mesh.visible = false;
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true); 
                         setTimeout(() => { if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { removeOtherPlayer(data.id); } }, 4000); 
                     } 
                 });
@@ -438,8 +426,9 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             
-            swordGroup.position.set(0,-4,0); 
-            swordGroup.rotation.set(-Math.PI/2, 0, 0); 
+            // FIX ROTAZIONE SPADA NEMICO: Lama in avanti (verso Z)
+            swordGroup.position.set(0,-5,0.5); 
+            swordGroup.rotation.x = -Math.PI/2; 
             
             swordGroup.visible = false; armR.add(swordGroup);
 
@@ -514,9 +503,9 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordContainer.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordContainer.add(hilt);
             
-            // Imposta rotazione iniziale della spada per puntare in avanti (verso Z negativo rispetto al braccio)
-            swordContainer.position.set(0,-4,0); 
-            swordContainer.rotation.set(-Math.PI/2, 0, 0); 
+            // FIX ROTAZIONE SPADA LOCALE
+            swordContainer.position.set(0,-5,0.5); 
+            swordContainer.rotation.x = -Math.PI/2; 
             
             swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
             const trailGeo = new THREE.RingGeometry(8, 12, 32, 1, 0, Math.PI);
@@ -532,6 +521,7 @@
         }
         function createShield() {
             shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+            // FIX ROTAZIONE SCUDO LOCALE
             shieldMesh.position.set(3, -2, 0); 
             shieldMesh.rotation.y = -Math.PI/2;
             
@@ -545,9 +535,8 @@
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
                 mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
-                
-                const speedMulti = isGibs ? 1.5 : 1.0;
-                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)*speedMulti), life: 1.0, maxLife: 1.0, isGib: isGibs });
+                // Life 1.0
+                particles.push({ mesh: mesh, velocity: new THREE.Vector3(random()-0.5, random()*0.5+0.2, random()-0.5).normalize().multiplyScalar(speedBase*(random()+0.5)), life: 1.0, maxLife: 1.0, isGib: isGibs });
             }
         }
         function updateParticles(delta) {
@@ -555,6 +544,7 @@
                 const p = particles[i]; p.life -= delta; p.velocity.y -= 50.0 * delta; 
                 p.mesh.position.addScaledVector(p.velocity, delta); p.mesh.rotation.x+=delta*5;
                 
+                // Fade out scale
                 const scale = p.life / p.maxLife;
                 p.mesh.scale.setScalar(scale);
 
@@ -589,6 +579,7 @@
                 if (sphere.material.opacity <= 0) { clearInterval(expand); scene.remove(sphere); scene.remove(light); geometry.dispose(); material.dispose(); }
             }, 30);
             
+            // Clean up sphere manually after 1s if it lingers
             setTimeout(() => { if(sphere.parent) scene.remove(sphere); if(light.parent) scene.remove(light); }, 1000);
         }
         function flashScreen(colorStr) { const flash = document.getElementById('screen-flash'); flash.style.backgroundColor = colorStr; flash.style.opacity = 0.4; setTimeout(() => { flash.style.opacity = 0; }, 150); }
@@ -667,7 +658,7 @@
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
                 } else if (isMoving) { 
-                    const isSprintingActive = isSprinting && playerStats.stamina > 0 && !isBlocking; const speedMulti = isSprintingActive ? 8 : 4;
+                    const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
                     
                     playerLimbs.legL.rotation.x = angle * legAmp; 
@@ -699,7 +690,13 @@
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
                 
-                if (p.isDead || !mesh.visible) {
+                if (p.isDead) { 
+                    if (mesh.rotation.x > -Math.PI / 2) {
+                        mesh.rotation.x = Math.max(-Math.PI / 2, mesh.rotation.x - delta * 4);
+                    }
+                    if (mesh.position.y > 1.5) {
+                        mesh.position.y -= delta * 10;
+                    }
                     return; 
                 }
                 
@@ -747,7 +744,7 @@
                         limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
                     } else {
                         limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
-                        limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = Math.cos(time)*0.05;
+                        limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
                     }
                 }
                 if(mesh.userData.hpBar) mesh.userData.hpBar.parent.lookAt(camera.position);
@@ -777,7 +774,6 @@
         }
 
         function startCasting(spellId, type, key) {
-            if (playerStats.isDead) return;
             if (castingState.active) return;
             let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0; 
             if (type === 'attack' && spellId !== 4) {
@@ -930,17 +926,12 @@
         function getStaffTip() { const vec = new THREE.Vector3(); if(staffContainer?.userData.gem) staffContainer.userData.gem.getWorldPosition(vec); else vec.copy(playerMesh.position).add(new THREE.Vector3(0,5,0)); return vec; }
         
         function fireHitscan() {
-            if (playerStats.isDead) return;
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh).filter(m => m.visible);
+            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
             const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
             if(intersects.length > 0) {
                 let hitPoint = intersects[0].point; let obj = intersects[0].object; let enemyFound = null; let currentObj = obj;
-                while(currentObj) { 
-                    const foundEntry = Object.values(otherPlayers).find(p => p.mesh === currentObj);
-                    if(foundEntry) { enemyFound = currentObj; break; } 
-                    currentObj = currentObj.parent; 
-                }
+                while(currentObj) { if(Object.values(otherPlayers).find(p => p.mesh === currentObj)) { enemyFound = currentObj; break; } currentObj = currentObj.parent; }
                 if(enemyFound) {
                     spawnStoneSpikes(enemyFound, true); 
                     const hitId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === enemyFound);
@@ -958,43 +949,20 @@
         }
 
         function spawnProjectile(type) {
-            if (playerStats.isDead) return;
-            let geo, speed, color, hitRadius, visualRadius;
-            if (type === 1) { 
-                geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; 
-                hitRadius = 4.0; visualRadius = 2.0;
-            } 
-            else if (type === 2) { 
-                // ONDA: Hitbox grande, visual piccolo
-                geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; 
-                hitRadius = SETTINGS.pushRadius; // 15.0
-                visualRadius = SETTINGS.visualRadius; // 6.0
-            } 
-            else { 
-                geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; 
-                hitRadius = 4.0; visualRadius = 15.0;
-            } 
-            
+            let geo, speed, color;
+            if (type === 1) { geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; } 
+            else if (type === 2) { geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; } 
+            else { geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; } 
             const proj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color }));
             const spawnPos = getStaffTip();
-            
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
             const hits = raycaster.intersectObjects([...obstacles], true);
             let targetPoint;
             if(hits.length > 0) { targetPoint = hits[0].point; } else { const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir); targetPoint = camera.position.clone().add(camDir.multiplyScalar(100)); }
-            
             const velocityDir = new THREE.Vector3().subVectors(targetPoint, spawnPos).normalize();
             proj.position.copy(spawnPos);
             const light = new THREE.PointLight(color, 1, 30); proj.add(light);
-            
-            proj.userData = { 
-                velocity: velocityDir.multiplyScalar(speed), 
-                life: 2.0, 
-                type: type, 
-                isMine: true,
-                hitRadius: hitRadius, // Salvato per updateProjectiles
-                visualRadius: visualRadius // Salvato per updateProjectiles
-            };
+            proj.userData = { velocity: velocityDir.multiplyScalar(speed), life: 2.0, type: type, isMine: true };
             scene.add(proj); projectiles.push(proj);
         }
 
@@ -1005,131 +973,80 @@
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
             const light = new THREE.PointLight(color, 1, 20); proj.add(light);
-            // Applicare hitbox corretta anche ai proiettili nemici
-            let hitR = 8.0;
-            if (type === 2) hitR = SETTINGS.pushRadius;
-
-            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false, hitRadius: hitR }; 
+            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
 
         function updateProjectiles(delta) {
-            const playerEntries = Object.values(otherPlayers).filter(p => p.mesh.visible); // Solo giocatori visibili
-
+            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh);
+            
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
                 const move = p.userData.velocity.clone().multiplyScalar(delta);
-                const dist = move.length();
                 
-                if (dist < 0.000001) continue; 
+                if (move.lengthSq() < 0.000001) continue; 
 
                 const nextPos = p.position.clone().add(move);
                 let hit = false, hitPoint = p.position.clone();
                 let hitTarget = null;
                 
                 if (p.userData.isMine) {
-                    const hitRadius = p.userData.hitRadius || 4.0;
-                    
-                    // 1. SAFE RAYCAST CHECK (FIX per trapassare)
-                    if (playerEntries.length > 0) {
-                        projRaycaster.set(p.position, move.clone().normalize());
-                        projRaycaster.far = dist;
-                        const intersects = projRaycaster.intersectObjects(playerEntries.map(pe => pe.mesh), true);
-                        
-                        if (intersects.length > 0) {
-                            const firstHitObj = intersects[0].object;
-                            hitPoint = intersects[0].point;
-                            
-                            // Risale per trovare il mesh radice del giocatore
-                            const ownerEntry = playerEntries.find(entry => {
-                                let curr = firstHitObj;
-                                while (curr) {
-                                    if (curr === entry.mesh) return true;
-                                    curr = curr.parent;
-                                }
-                                return false;
-                            });
+                    Object.values(otherPlayers).forEach(op => {
+                        const dx = p.position.x - op.mesh.position.x;
+                        const dz = p.position.z - op.mesh.position.z;
+                        const distXZ = Math.sqrt(dx*dx + dz*dz);
+                        const dy = p.position.y - op.mesh.position.y;
 
-                            if (ownerEntry) {
-                                hit = true;
-                                hitTarget = ownerEntry.mesh;
-                            }
+                        if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
+                            hit = true; hitTarget = op.mesh; hitPoint = p.position.clone();
                         }
-                    }
+                    });
 
-                    // 2. Fallback Distance Check (Se raycast fallisce ma siamo troppo vicini/dentro)
-                    if (!hit) {
-                        for(const op of playerEntries) {
-                            const dx = p.position.x - op.mesh.position.x;
-                            const dz = p.position.z - op.mesh.position.z;
-                            const distXZ = Math.sqrt(dx*dx + dz*dz);
-                            const dy = p.position.y - op.mesh.position.y;
-
-                            if (distXZ < hitRadius && dy > 0 && dy < 15.0) {
-                                hit = true; hitTarget = op.mesh; hitPoint = p.position.clone();
-                                break;
-                            }
-                        }
-                    }
-
-                    // 3. Obstacle Check
                     if (!hit) {
                         obstacleRaycaster.set(p.position, p.userData.velocity.clone().normalize());
-                        obstacleRaycaster.far = dist + 0.1;
+                        obstacleRaycaster.far = move.length() + 0.1;
                         const intersects = obstacleRaycaster.intersectObjects([...obstacles], true);
                         if (intersects.length > 0) { hit = true; hitPoint = intersects[0].point; }
                     }
                         
-                    if (hit && hitTarget) {
-                        // Trova ID Target
-                        let targetId = null;
-                        for(const [id, entry] of Object.entries(otherPlayers)) {
-                            if (entry.mesh === hitTarget) { targetId = id; break; }
+                    if (hitTarget) {
+                        const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === hitTarget);
+                        let dmg = 0;
+                        if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
+                        else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
+                        else if (p.userData.type === 2) dmg = 10; 
+
+                        if(otherPlayers[targetId].mesh.userData.isBlocking && (p.userData.type === 1 || p.userData.type === 2)) {
+                             dmg *= (1.0 - SETTINGS.blockMitigation); 
+                             createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                        } else {
+                             createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                         }
-                        
-                        if(targetId) {
-                            let dmg = 0;
-                            if (p.userData.type === 1) dmg = SETTINGS.missileDmg; 
-                            else if (p.userData.type === 3) dmg = SETTINGS.fireballDmg;
-                            else if (p.userData.type === 2) dmg = 10; 
 
-                            if(otherPlayers[targetId].mesh.userData.isBlocking && (p.userData.type === 1 || p.userData.type === 2)) {
-                                dmg *= (1.0 - SETTINGS.blockMitigation); 
-                                createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
-                            } else {
-                                createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
-                            }
-
-                            if (socket) {
-                                if (p.userData.type === 2) { 
-                                    // ONDA (Shockwave)
-                                    spawnExplosionVisual(hitPoint, 0xffffff, p.userData.visualRadius || 10);
-                                    checkShockwaveAoE(hitPoint);
-                                } else if (p.userData.type === 3) { 
-                                    spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
-                                    socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
-                                    checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
-                                    addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
-                                } else if (p.userData.type === 1) { 
-                                    socket.emit('playerHit', { damage: dmg, targetId: targetId });
-                                }
+                        if (socket) {
+                            if (p.userData.type === 2) { 
+                                spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius);
+                                checkShockwaveAoE(hitPoint);
+                            } else if (p.userData.type === 3) { 
+                                spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
+                                socket.emit('playerPushed', { targetId: targetId, forceY: SETTINGS.fireballUpForce, damage: dmg });
+                                checkSplashDamage(hitPoint, SETTINGS.fireballRadius, 5, false);
+                                addToLog(`Colpito ${otherPlayers[targetId].username} con Palla di Fuoco!`, "dmg-dealt");
+                            } else if (p.userData.type === 1) { 
+                                socket.emit('playerHit', { damage: dmg, targetId: targetId });
                             }
                         }
                     }
                 } 
                 else {
-                    // Check local player hit
-                    if (!playerStats.isDead) {
-                        const hitRadius = p.userData.hitRadius || 4.0;
-                        const dx = p.position.x - playerMesh.position.x;
-                        const dz = p.position.z - playerMesh.position.z;
-                        const distXZ = Math.sqrt(dx*dx + dz*dz);
-                        const dy = p.position.y - playerMesh.position.y;
-                        
-                        if (distXZ < hitRadius && dy > 0 && dy < 15.0) {
-                             hit = true; hitPoint = playerMesh.position;
-                             playSound('hit');
-                        }
+                    const dx = p.position.x - playerMesh.position.x;
+                    const dz = p.position.z - playerMesh.position.z;
+                    const distXZ = Math.sqrt(dx*dx + dz*dz);
+                    const dy = p.position.y - playerMesh.position.y;
+                    
+                    if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
+                         hit = true; hitPoint = playerMesh.position;
+                         playSound('hit');
                     }
                 }
 
@@ -1138,7 +1055,7 @@
 
                     if (p.userData.isMine) {
                         if (p.userData.type === 2) {
-                            spawnExplosionVisual(hitPoint, 0xffffff, p.userData.visualRadius || 10); 
+                            spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
                             checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -1170,50 +1087,45 @@
             }
 
             Object.values(otherPlayers).forEach(op => {
-                if (op.mesh.visible) {
-                    const distToEnemy = op.mesh.position.distanceTo(origin);
-                    if (distToEnemy < SETTINGS.pushRadius) {
-                        const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
-                        let finalDmg = 10; 
-                        if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation);
-                        const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
-                        const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
-                        forceVec.y = SETTINGS.pushUpForce; 
-                        socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
-                    }
+                const distToEnemy = op.mesh.position.distanceTo(origin);
+                if (distToEnemy < SETTINGS.pushRadius) {
+                    const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
+                    let finalDmg = 10; 
+                    if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation);
+                    const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
+                    const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
+                    forceVec.y = SETTINGS.pushUpForce; 
+                    socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
                 }
             });
         }
         
         function checkSplashDamage(origin, radius, damage, pushBack) {
             Object.values(otherPlayers).forEach(op => {
-                if (op.mesh.visible) {
-                    if (op.mesh.position.distanceTo(origin) < radius) {
-                        const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
-                        
-                        let finalDmg = damage;
-                        if(op.mesh.userData.isBlocking) {
-                            finalDmg *= (1.0 - SETTINGS.blockMitigation);
-                            createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
-                        } else {
-                            createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
-                        }
+                if (op.mesh.position.distanceTo(origin) < radius) {
+                    const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
+                    
+                    let finalDmg = damage;
+                    if(op.mesh.userData.isBlocking) {
+                        finalDmg *= (1.0 - SETTINGS.blockMitigation);
+                        createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    } else {
+                        createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
+                    }
 
-                        if (pushBack) {
-                             const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
-                             const forceVec = dir.multiplyScalar(SETTINGS.pushForce * 0.5); 
-                             forceVec.y = 100;
-                             socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
-                        } else {
-                             socket.emit('playerHit', { damage: finalDmg, targetId: targetId });
-                        }
+                    if (pushBack) {
+                         const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
+                         const forceVec = dir.multiplyScalar(SETTINGS.pushForce * 0.5); 
+                         forceVec.y = 100;
+                         socket.emit('playerPushed', { targetId: targetId, forceVec: forceVec, damage: finalDmg });
+                    } else {
+                         socket.emit('playerHit', { damage: finalDmg, targetId: targetId });
                     }
                 }
             });
         }
 
         function swingSword() {
-            if (playerStats.isDead) return;
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing_heavy');
@@ -1223,27 +1135,24 @@
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
-                if (p.mesh.visible) {
-                    const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
-                    if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
-                        let dmg = SETTINGS.meleeDmg;
-                        if(p.mesh.userData.isBlocking) {
-                            dmg *= (1.0 - SETTINGS.blockMitigation); 
-                            createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
-                        } else {
-                            createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
-                        }
-                        if (socket) {
-                             socket.emit('playerPushed', { targetId: id, pushOrigin: origin, damage: dmg });
-                        }
-                        addToLog(`Colpito ${p.username} con Spada! -${Math.round(dmg)}`, "dmg-dealt");
+                const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
+                if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
+                    let dmg = SETTINGS.meleeDmg;
+                    if(p.mesh.userData.isBlocking) {
+                        dmg *= (1.0 - SETTINGS.blockMitigation); 
+                        createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    } else {
+                        createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                     }
+                    if (socket) {
+                         socket.emit('playerPushed', { targetId: id, pushOrigin: origin, damage: dmg });
+                    }
+                    addToLog(`Colpito ${p.username} con Spada! -${Math.round(dmg)}`, "dmg-dealt");
                 }
             });
         }
         
         function startBlocking() {
-            if (playerStats.isDead) return;
             if (weaponMode !== 'melee' || isBlocking || playerStats.stamina < 5) return;
             isBlocking = true;
             document.getElementById('block-text').style.display = 'block';
@@ -1261,60 +1170,24 @@
                 const speed = 20; swordContainer.rotation.z = -Math.PI/2; swordContainer.rotation.y += delta * speed; swordContainer.rotation.x = Math.PI/2;
                 playerLimbs.armR.rotation.x = -Math.PI/2; playerLimbs.armL.rotation.x = -Math.PI/2; return; 
             }
-            
-            if(isAttacking) { 
-                attackTimer += delta * 15; 
-                if(attackTimer > Math.PI) isAttacking = false; 
-            }
-            
+            if(isAttacking) { attackTimer += delta * 15; if(attackTimer > Math.PI) isAttacking = false; }
             if(weaponMode==='melee') {
-                // Rotazione Spada per puntare in avanti in Melee
-                // Se ArmR è a 0 rotazione, è verticale in basso.
-                // Ruotiamo la spada per farla puntare verso Z-
-                
-                let targetRotX = -Math.PI/2; 
-                let targetRotY = 0; 
-                let targetRotZ = 0;
-
-                if (isAttacking) { 
-                    const progress = attackTimer / Math.PI; 
-                    const sweep = Math.cos(progress * Math.PI); 
-                    
-                    playerLimbs.armR.rotation.x = -Math.PI/4; 
-                    
-                    targetRotX = -Math.PI/2; 
-                    targetRotY = sweep * 1.5;
-                    targetRotZ = 0;
-                } else {
-                    // IDLE MELEE: Spada puntata aggressivamente in avanti
-                    // Il braccio viene ruotato in updateAnimations, compensiamo qui
-                    targetRotX = -1.2; // Punta un po' più su del pavimento
-                    targetRotY = 0.5; // Leggera angolazione interna
-                    targetRotZ = Math.PI/2; // Rotazione lama
-                }
-                
-                // Lerp per fluidità
-                swordContainer.rotation.x += (targetRotX - swordContainer.rotation.x) * delta * 10;
-                swordContainer.rotation.y += (targetRotY - swordContainer.rotation.y) * delta * 10;
-                swordContainer.rotation.z += (targetRotZ - swordContainer.rotation.z) * delta * 10;
+                let targetRotZ = -Math.PI/2; let targetRotY = 0; let armRotX = 0;
+                if (isAttacking) { const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; } 
+                else { const time = performance.now() * 0.002; targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; targetRotY = 0; }
+                swordContainer.rotation.z = targetRotZ; swordContainer.rotation.y = targetRotY + Math.PI; 
+                swordContainer.rotation.x = Math.PI/2; 
+                if(isAttacking) playerLimbs.armR.rotation.x = armRotX;
             }
         }
 
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
-            const isMoving = moveForward || moveBackward || moveLeft || moveRight;
-            const isSprintingActive = isSprinting && isMoving && playerStats.stamina > 0 && !isBlocking;
-
             if (isBlocking) {
                 playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
                 if (playerStats.stamina <= 0) stopBlocking();
-                // NESSUNA REGEN DURANTE LA PARATA
-            } else if (isSprintingActive) { 
-                // CONSUMO COSTANTE 1 STAMINA/SEC e NESSUNA REGEN
-                playerStats.stamina -= SETTINGS.sprintCostPerSec * delta; 
             } else {
-                // REGEN NORMALE SOLO SE NON SPRINTI E NON BLOCCHI
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             }
 
@@ -1323,6 +1196,9 @@
             if (velocity.y != 0) playerStats.isFalling = true;
             if(isBlocking) speed *= 0.5;
 
+            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0 && !isBlocking) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
+            velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
+            
             const rotY = playerMesh.rotation.y;
             let moving = false;
             const moveVec = new THREE.Vector3();
@@ -1331,12 +1207,6 @@
             if (moveBackward) { moveVec.add(new THREE.Vector3(-Math.sin(rotY),0,-Math.cos(rotY)).negate()); moving=true; }
             if (moveRight) { moveVec.add(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY))); moving=true; }
             if (moveLeft) { moveVec.add(new THREE.Vector3(Math.cos(rotY),0,-Math.sin(rotY)).negate()); moving=true; }
-
-            if (isSprintingActive) { 
-                speed *= SETTINGS.sprintMulti; 
-            }
-            
-            velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
             
             if(moving) {
                 moveVec.normalize();
@@ -1370,7 +1240,7 @@
                 }
             });
             if (socket && myId) {
-                const animState = isSprintingActive ? 'run' : (moving) ? 'walk' : 'idle';
+                const animState = isSprinting ? 'run' : (moving) ? 'walk' : 'idle';
                 socket.emit('playerMovement', { position: playerMesh.position, rotation: { x: playerMesh.rotation.x, y: playerMesh.rotation.y, z: playerMesh.rotation.z }, animState: animState, weaponMode: weaponMode });
             }
         }
@@ -1464,13 +1334,9 @@
             const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
             if (!playerStats.isDead) { 
                 try {
-                    updatePhysics(delta); 
-                    updateProjectiles(delta); 
-                    updateCasting(delta);
-                    updateConversions(delta); 
-                    updateFloatingTexts(delta);
+                    updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
+                    updateConversions(delta); updateFloatingTexts(delta);
                     updateSwordAnimation(delta); 
-                    updateParticles(delta); // CHIAMATA MANCANTE RIPRISTINATA
                 } catch(e) { console.error(e); }
                 updateCamera(); 
             }
