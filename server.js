@@ -97,19 +97,27 @@ io.on('connection', (socket) => {
     socket.on('playerPushed', (pushData) => {
         const targetId = pushData.targetId;
         if (players[targetId]) {
+            let actualDamage = 0;
             if (pushData.damage) {
-                players[targetId].hp -= pushData.damage;
+                actualDamage = pushData.damage;
+                players[targetId].hp -= actualDamage;
             }
+            // Emit to the target player so they can execute the push effect
             io.to(targetId).emit('playerPushed', {
                 forceY: pushData.forceY, 
                 forceVec: pushData.forceVec, 
                 pushOrigin: pushData.pushOrigin
             });
+            
+            // Emit health update and damage effect to all players
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
+            if (actualDamage > 0) {
+                io.emit('remoteDamageTaken', { id: targetId }); // Notify all for blood/damage effect
+            }
 
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
-                io.emit('playerDied', { id: targetId, killerId: socket.id });
+                io.emit('playerDied', { id: targetId, killerId: socket.id }); // Sent to ALL players
             }
         }
     });
@@ -117,12 +125,23 @@ io.on('connection', (socket) => {
     socket.on('playerHit', (dmgData) => {
         const targetId = dmgData.targetId;
         if (players[targetId]) {
-            players[targetId].hp -= dmgData.damage;
+            const actualDamage = dmgData.damage;
+            players[targetId].hp -= actualDamage;
+            
+            // Send health update to all
             io.emit('updateHealth', { id: targetId, hp: players[targetId].hp });
+            
+            // Send specific damage response to the target for local effects (like screen flash)
+            io.to(targetId).emit('playerHitResponse', { damage: actualDamage });
+
+            // Notify all for blood/damage effect
+            if (actualDamage > 0) {
+                io.emit('remoteDamageTaken', { id: targetId });
+            }
             
             if (players[targetId].hp <= 0 && !players[targetId].isDead) {
                 players[targetId].isDead = true;
-                io.emit('playerDied', { id: targetId, killerId: socket.id });
+                io.emit('playerDied', { id: targetId, killerId: socket.id }); // Sent to ALL players
             }
         }
     });

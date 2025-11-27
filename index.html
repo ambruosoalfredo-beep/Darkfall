@@ -171,27 +171,39 @@
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
         const SETTINGS = { 
-            speed: 400.0, sprintMulti: 1.4, 
-            jumpForce: 250.0, 
-            gravity: 800.0, 
+            speed: 400.0, 
+            sprintMulti: 1.4, 
+            sprintStaminaCostPerSec: 1.0, // NUOVA: Costo scatto 1 stamina/sec
             
             // JUMP SETTINGS
+            jumpForce: 250.0, 
             jumpCooldown: 1000,
-            jumpCost: 20,
-
+            jumpCost: 15, // MODIFICATO: Salto 15 stamina
+            gravity: 800.0, 
+            
             missileSpeed: 900.0, 
             missileDmg: 5, 
             missileCost: 5,
             
-            // ONDA (Shockwave) Visual Reduced
-            pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, 
-            pushRadius: 25, // Reduced from 45 (User req: smaller visual)
+            // ONDA (Shockwave)
+            pushSpeed: 700.0, 
+            pushForce: 900.0, 
+            pushUpForce: 500.0, 
+            pushCost: 15, 
+            pushRadius: 45, // MODIFICATO: Hitbox ingrandita a 45
+            pushVisualRadius: 20, // NUOVA: Animazione impatto ridotta a 20
             
             fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
             beamDmg: 25, beamCost: 5, beamRange: 200, 
-            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 35, 
-            manaRegen: 2.0, staminaCost: 0.2, staminaRegen: 3.0, 
+            fireRate: 400, meleeRate: 500, 
+            meleeRange: 32, 
+            meleeDmg: 15, // MODIFICATO: Danno melee 15
+            
+            manaRegen: 2.0, 
+            staminaCost: 0.2, 
+            staminaRegen: 3.0, // Rigenerazione base
+            
             healAmount: 20, healCost: 10, healCooldown: 10000, 
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
@@ -264,6 +276,26 @@
                     }
                 });
 
+                socket.on('remoteDamageTaken', (data) => {
+                    // Gestisce la perdita di sangue visibile a tutti i giocatori (sia melee che ranged)
+                    if (data.id === myId) {
+                        // Il danno è gestito in playerHitResponse, ma l'effetto è qui per uniformità
+                        spawnParticles(playerMesh.position, 0xff0000, 5, 20, 0.5, false); 
+                    } else if (otherPlayers[data.id]) { 
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); 
+                    } 
+                });
+                
+                socket.on('playerHitResponse', (data) => {
+                    // Risposta specifica per il player colpito (per effetti locali come flash)
+                    const diff = -data.damage;
+                    playerStats.hp = Math.max(0, playerStats.hp + diff); 
+                    updateUI(); 
+                    if (diff < 0) {
+                        flashScreen('red'); 
+                    }
+                });
+
                 socket.on('enemyAttacked', (data) => { 
                     if (otherPlayers[data.id]) { 
                         if (data.type === 'melee') { otherPlayers[data.id].mesh.userData.isAttacking = true; otherPlayers[data.id].mesh.userData.attackTimer = 0; playSound('swing_heavy', otherPlayers[data.id].mesh.position); } 
@@ -291,26 +323,29 @@
 
                 socket.on('updateHealth', (data) => { 
                     if (data.id === myId) { 
-                        const diff = data.hp - playerStats.hp;
                         playerStats.hp = data.hp; updateUI(); 
-                        if (diff < 0) {
-                            flashScreen('red'); 
-                        }
                     } else if (otherPlayers[data.id]) { 
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp); 
-                        spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); 
                     } 
                 });
                 
                 socket.on('playerDied', (data) => { 
+                    // Questa logica viene eseguita su TUTTI i client (io.emit dal server)
                     if (data.id === myId) { 
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
+                        // Esplosione di sangue per me stesso (per chi muore)
+                        spawnParticles(playerMesh.position, 0xff0000, 50, 50, 1.0, true);
+                        setTimeout(() => { 
+                            playerMesh.visible = false; 
+                            // Per evitare problemi, il player locale non viene rimosso ma reso invisibile
+                        }, 4000); 
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
-                        spawnParticles(otherPlayers[data.id].mesh.position, 0xffd700, 50, 50, 1.0, true); 
+                        // Esplosione di sangue (visibile a tutti i players)
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 50, 50, 1.0, true); 
                         setTimeout(() => { if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { removeOtherPlayer(data.id); } }, 4000); 
                     } 
                 });
@@ -426,9 +461,11 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             
-            // FIX ROTAZIONE SPADA NEMICO: Lama in avanti (verso Z)
+            // Rotazione spada nemico (melee) in 3a persona
+            // Prima rotazione: puntare la punta in avanti (lungo l'asse Z positivo)
             swordGroup.position.set(0,-5,0.5); 
-            swordGroup.rotation.x = -Math.PI/2; 
+            swordGroup.rotation.x = -Math.PI/2; // Rotazione iniziale per allineare la lama
+            swordGroup.rotation.y = 0; // Rotazione lungo l'asse Y per puntare in avanti
             
             swordGroup.visible = false; armR.add(swordGroup);
 
@@ -503,9 +540,11 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordContainer.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordContainer.add(hilt);
             
-            // FIX ROTAZIONE SPADA LOCALE
+            // Rotazione spada locale (melee) in 3a persona
+            // Prima rotazione: puntare la punta in avanti (lungo l'asse Z positivo)
             swordContainer.position.set(0,-5,0.5); 
             swordContainer.rotation.x = -Math.PI/2; 
+            swordContainer.rotation.y = 0; // Allineata al forward del playerMesh
             
             swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
             const trailGeo = new THREE.RingGeometry(8, 12, 32, 1, 0, Math.PI);
@@ -521,7 +560,7 @@
         }
         function createShield() {
             shieldMesh = new THREE.Mesh(new THREE.BoxGeometry(4, 8, 1), new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
-            // FIX ROTAZIONE SCUDO LOCALE
+            // Rotazione scudo locale
             shieldMesh.position.set(3, -2, 0); 
             shieldMesh.rotation.y = -Math.PI/2;
             
@@ -640,9 +679,7 @@
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             
             if (playerStats.isDead) {
-                if (playerMesh.rotation.z < Math.PI / 2) {
-                    playerMesh.rotation.z = Math.min(Math.PI / 2, playerMesh.rotation.z + delta * 2);
-                }
+                // L'animazione di morte è gestita dall'esplosione e dalla scomparsa
                 playerMesh.position.y = 6; 
                 return;
             }
@@ -691,12 +728,7 @@
                 const mesh = p.mesh;
                 
                 if (p.isDead) { 
-                    if (mesh.rotation.x > -Math.PI / 2) {
-                        mesh.rotation.x = Math.max(-Math.PI / 2, mesh.rotation.x - delta * 4);
-                    }
-                    if (mesh.position.y > 1.5) {
-                        mesh.position.y -= delta * 10;
-                    }
+                    // Animazione di morte: Sparire dopo l'esplosione
                     return; 
                 }
                 
@@ -997,6 +1029,7 @@
                         const distXZ = Math.sqrt(dx*dx + dz*dz);
                         const dy = p.position.y - op.mesh.position.y;
 
+                        // Hit detection logic for enemy player (simplified AABB)
                         if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
                             hit = true; hitTarget = op.mesh; hitPoint = p.position.clone();
                         }
@@ -1025,7 +1058,8 @@
 
                         if (socket) {
                             if (p.userData.type === 2) { 
-                                spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius);
+                                // USA IL NUOVO PUSH VISUAL RADIUS PER L'ESPLOSIONE
+                                spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushVisualRadius); 
                                 checkShockwaveAoE(hitPoint);
                             } else if (p.userData.type === 3) { 
                                 spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -1055,7 +1089,8 @@
 
                     if (p.userData.isMine) {
                         if (p.userData.type === 2) {
-                            spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushRadius); 
+                            // USA IL NUOVO PUSH VISUAL RADIUS PER L'ESPLOSIONE
+                            spawnExplosionVisual(hitPoint, 0xffffff, SETTINGS.pushVisualRadius); 
                             checkShockwaveAoE(hitPoint);
                         } else if (p.userData.type === 3) { 
                             spawnExplosionVisual(hitPoint, 0xff4500, SETTINGS.fireballRadius); 
@@ -1076,6 +1111,7 @@
         }
         
         function checkShockwaveAoE(origin) {
+            // Usa pushRadius (45) per la logica di gioco (hitbox ingrandita)
             const distToMe = playerMesh.position.distanceTo(origin);
             if (distToMe < SETTINGS.pushRadius) {
                 const dir = new THREE.Vector3().subVectors(playerMesh.position, origin).normalize();
@@ -1174,9 +1210,15 @@
             if(weaponMode==='melee') {
                 let targetRotZ = -Math.PI/2; let targetRotY = 0; let armRotX = 0;
                 if (isAttacking) { const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; } 
-                else { const time = performance.now() * 0.002; targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; targetRotY = 0; }
-                swordContainer.rotation.z = targetRotZ; swordContainer.rotation.y = targetRotY + Math.PI; 
-                swordContainer.rotation.x = Math.PI/2; 
+                else { 
+                    // Animazione a riposo e rotazione per far puntare la punta in avanti
+                    const time = performance.now() * 0.002; 
+                    targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; 
+                    targetRotY = 0; // Rotazione neutrale per indicare avanti (già impostato in createSword)
+                }
+                swordContainer.rotation.z = targetRotZ; 
+                swordContainer.rotation.y = targetRotY + Math.PI; // Rotazione +PI per correggere l'orientamento
+                swordContainer.rotation.x = Math.PI/2; // Rotazione per tenere la spada dritta
                 if(isAttacking) playerLimbs.armR.rotation.x = armRotX;
             }
         }
@@ -1184,10 +1226,21 @@
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
+            // Logica rigenerazione stamina
+            let isRegenStaminaBlocked = isBlocking || isWhirlwinding;
+            
+            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina > 0 && !isBlocking) { 
+                playerStats.stamina -= SETTINGS.sprintStaminaCostPerSec * delta; // Costo scatto (1/sec)
+                isRegenStaminaBlocked = true; // Blocca la rigenerazione durante lo scatto
+            }
+            
             if (isBlocking) {
                 playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; 
                 if (playerStats.stamina <= 0) stopBlocking();
-            } else {
+                isRegenStaminaBlocked = true; // Blocca la rigenerazione durante la parata
+            } 
+            
+            if (!isRegenStaminaBlocked) {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             }
 
@@ -1196,7 +1249,11 @@
             if (velocity.y != 0) playerStats.isFalling = true;
             if(isBlocking) speed *= 0.5;
 
-            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina>0 && !isBlocking) { speed*=SETTINGS.sprintMulti; playerStats.stamina-=SETTINGS.staminaCost; }
+            // Applica il moltiplicatore di velocità per lo scatto se è attivo e c'è stamina
+            if (isSprinting && (moveForward||moveBackward||moveLeft||moveRight) && playerStats.stamina > 0 && !isBlocking) { 
+                speed*=SETTINGS.sprintMulti; 
+            }
+            
             velocity.x -= velocity.x*5*delta; velocity.z -= velocity.z*5*delta; velocity.y -= SETTINGS.gravity*delta;
             
             const rotY = playerMesh.rotation.y;
@@ -1230,6 +1287,9 @@
                     playerStats.isFalling = false; 
                 }
             }
+            
+            // Clamp stamina to max/min
+            playerStats.stamina = Math.max(0, Math.min(playerStats.maxStamina, playerStats.stamina));
             
             obstacles.forEach(o => { 
                 const box = new THREE.Box3().setFromObject(o);
