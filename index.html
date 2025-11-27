@@ -188,15 +188,15 @@
             
             // ONDA (Shockwave)
             pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, 
-            pushRadius: 12.0, // Hitbox ingrandita a 12.0 (era 4.0), vfx ridotto (visualRadius)
-            visualRadius: 10.0, // Visual ridotto come richiesto
+            pushRadius: 15.0, // Hitbox ingrandita (era 12) per facilitare il colpo
+            visualRadius: 6.0, // Visual ridotto (era 10) per animazione più compatta
             
             fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
             beamDmg: 25, beamCost: 5, beamRange: 200, 
-            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 15, // Danno richiesto 15
+            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 15, // Danno 15
             manaRegen: 2.0, 
-            sprintCostPerSec: 1.0, // 1 stamina/sec come richiesto
+            sprintCostPerSec: 1.0, // 1 stamina/sec esatto
             staminaRegen: 3.0, 
             healAmount: 20, healCost: 10, healCooldown: 10000, 
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
@@ -301,7 +301,7 @@
                         playerStats.hp = data.hp; updateUI(); 
                         if (diff < 0) {
                             flashScreen('red'); 
-                            spawnParticles(playerMesh.position, 0x8a0303, 10, 20, 0.4, false); // Self blood on hit
+                            spawnParticles(playerMesh.position, 0x8a0303, 30, 20, 0.4, false); // Self blood on hit
                         }
                     } else if (otherPlayers[data.id]) { 
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp); 
@@ -314,13 +314,14 @@
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
-                        spawnParticles(playerMesh.position, 0x8a0303, 100, 80, 0.8, true); // Death explosion
+                        spawnParticles(playerMesh.position, 0x8a0303, 200, 100, 1.0, true); // Massive Death explosion
+                        playerMesh.visible = false; // Hide self
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
                         // Big Blood Explosion (Visible to all)
-                        spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 150, 80, 1.2, true); 
-                        // Hide mesh immediately
+                        spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 200, 100, 1.2, true); 
+                        // Hide mesh immediately to simulate "disappearing"
                         otherPlayers[data.id].mesh.visible = false;
                         setTimeout(() => { if(otherPlayers[data.id] && otherPlayers[data.id].mesh.userData.isDead) { removeOtherPlayer(data.id); } }, 4000); 
                     } 
@@ -964,9 +965,10 @@
                 hitRadius = 4.0; visualRadius = 2.0;
             } 
             else if (type === 2) { 
+                // ONDA: Hitbox grande, visual piccolo
                 geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; 
-                hitRadius = SETTINGS.pushRadius; // Usa il valore aggiornato 
-                visualRadius = SETTINGS.visualRadius; // Usa il valore aggiornato
+                hitRadius = SETTINGS.pushRadius; // 15.0
+                visualRadius = SETTINGS.visualRadius; // 6.0
             } 
             else { 
                 geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; 
@@ -1003,7 +1005,11 @@
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
             const light = new THREE.PointLight(color, 1, 20); proj.add(light);
-            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false, hitRadius: 8.0 }; // Aggiunto hitRadius per proiettili nemici
+            // Applicare hitbox corretta anche ai proiettili nemici
+            let hitR = 8.0;
+            if (type === 2) hitR = SETTINGS.pushRadius;
+
+            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false, hitRadius: hitR }; 
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
 
@@ -1263,6 +1269,9 @@
             
             if(weaponMode==='melee') {
                 // Rotazione Spada per puntare in avanti in Melee
+                // Se ArmR è a 0 rotazione, è verticale in basso.
+                // Ruotiamo la spada per farla puntare verso Z-
+                
                 let targetRotX = -Math.PI/2; 
                 let targetRotY = 0; 
                 let targetRotZ = 0;
@@ -1277,22 +1286,23 @@
                     targetRotY = sweep * 1.5;
                     targetRotZ = 0;
                 } else {
-                    // IDLE - Spada puntata in avanti (Z negativo) e leggermente in basso
-                    targetRotX = -Math.PI/2; 
-                    targetRotY = 0; 
-                    targetRotZ = 0; 
+                    // IDLE MELEE: Spada puntata aggressivamente in avanti
+                    // Il braccio viene ruotato in updateAnimations, compensiamo qui
+                    targetRotX = -1.2; // Punta un po' più su del pavimento
+                    targetRotY = 0.5; // Leggera angolazione interna
+                    targetRotZ = Math.PI/2; // Rotazione lama
                 }
                 
-                swordContainer.rotation.x = targetRotX;
-                swordContainer.rotation.y = targetRotY;
-                swordContainer.rotation.z = targetRotZ;
+                // Lerp per fluidità
+                swordContainer.rotation.x += (targetRotX - swordContainer.rotation.x) * delta * 10;
+                swordContainer.rotation.y += (targetRotY - swordContainer.rotation.y) * delta * 10;
+                swordContainer.rotation.z += (targetRotZ - swordContainer.rotation.z) * delta * 10;
             }
         }
 
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
-            // Logica rigenerazione/costo Stamina (aggiornata)
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             const isSprintingActive = isSprinting && isMoving && playerStats.stamina > 0 && !isBlocking;
 
@@ -1301,10 +1311,10 @@
                 if (playerStats.stamina <= 0) stopBlocking();
                 // NESSUNA REGEN DURANTE LA PARATA
             } else if (isSprintingActive) { 
-                // NESSUNA REGEN DURANTE LO SPRINT, COSTO FISSO AL SECONDO
+                // CONSUMO COSTANTE 1 STAMINA/SEC e NESSUNA REGEN
                 playerStats.stamina -= SETTINGS.sprintCostPerSec * delta; 
             } else {
-                // REGEN NORMALE
+                // REGEN NORMALE SOLO SE NON SPRINTI E NON BLOCCHI
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
             }
 
