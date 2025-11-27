@@ -47,7 +47,17 @@
         #cast-bar-fill { width: 0%; height: 100%; background: #ffd700; box-shadow: 0 0 10px #ffd700; transition: width 0.05s linear; }
         #cast-bar-fill.ready { background: #00ff00; box-shadow: 0 0 15px #00ff00; }
         #cast-text { position: absolute; top: -22px; width: 100%; text-align: center; color: #ffd700; font-size: 13px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-        #ui-container { position: absolute; bottom: 100px; left: 20px; width: 250px; color: white; z-index: 10; background: rgba(0, 0, 0, 0.5); padding: 10px; border: 1px solid #444; pointer-events: none; border-radius: 4px; }
+        
+        /* Modifiche per il drag and drop della UI */
+        #ui-container { 
+            position: absolute; bottom: 100px; left: 20px; width: 250px; color: white; z-index: 10; 
+            background: rgba(0, 0, 0, 0.5); padding: 10px; border: 1px solid #444; 
+            /* Rimosso pointer-events: none per permettere il drag, il body ha ancora il lock */
+            border-radius: 4px; 
+            cursor: move; /* Indica che l'elemento è trascinabile */
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
         .bar-container { width: 100%; height: 16px; background: #222; margin-bottom: 4px; position: relative; border-radius: 2px; overflow: hidden; }
         .bar { height: 100%; transition: width 0.2s; }
         #hp-bar { background: linear-gradient(90deg, #b71c1c, #d32f2f); } #mana-bar { background: linear-gradient(90deg, #0d47a1, #1976d2); } #stamina-bar { background: linear-gradient(90deg, #f9a825, #fbc02d); } 
@@ -214,9 +224,10 @@
             
             // Missile (Dardo)
             missileSpeed: 900.0, 
-            missileDmg: 10, 
+            missileDmg: 7, // Dardo: 7 danni
             missileCost: 5,
-            missileGravity: 100.0, // Gravità diminuita di tanto (da 800.0 a 100.0)
+            missileCastTime: 0.2, // Dardo: 0.2s di cast time
+            missileGravity: 100.0, 
             
             // ONDA (Shockwave)
             pushSpeed: 700.0, 
@@ -225,7 +236,7 @@
             pushCost: 15, 
             pushRadius: 45, 
             pushVisualRadius: 20, 
-            pushGravity: 100.0, // Gravità diminuita di tanto (da 800.0 a 100.0)
+            pushGravity: 100.0, 
             
             // Fireball (Palla di Fuoco)
             fireballSpeed: 600.0, 
@@ -233,7 +244,7 @@
             fireballDmg: 30, 
             fireballCost: 20, 
             fireballRadius: 35, 
-            fireballGravity: 700.0, // Gravità diminuita di poco (da 800.0 a 700.0)
+            fireballGravity: 700.0, 
             
             // Beam (Spuntoni)
             beamDmg: 25, 
@@ -242,14 +253,15 @@
             
             // Bow (Arco)
             bowCastTime:0.3, 
-            arrowSpeed: 800.0, // Velocità aumentata, poco inferiore a missileSpeed (900.0)
-            arrowDmg: 15, // Danno impostato a 15
-            arrowCost: 0, 
-            arrowGravity: 5.0, // Gravità freccia mantenuta bassa
+            arrowSpeed: 800.0, 
+            arrowDmg: 15, 
+            arrowCost: 2, 
+            arrowGravity: 5.0, 
             
             fireRate: 400, meleeRate: 500, 
             meleeRange: 32, 
             meleeDmg: 15, 
+            meleeStaminaCost: 5, // Costo stamina attacco base spada
             meleeKnockbackForce: 100, 
             
             manaRegen: 2.0, 
@@ -260,7 +272,7 @@
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
             spikesCooldown: 3000,
-            blockStaminaCost: 0.5, 
+            blockStaminaCostPerSec: 0.5, // Costo stamina parata per secondo
             blockMitigation: 0.7 
         };
         
@@ -313,6 +325,88 @@
             }
         }
         // --- FINE GESTIONE SENSIBILITÀ MOUSE ---
+        
+        // --- GESTIONE UI DRAGGABILE ---
+        function setupDraggableUI() {
+            const uiContainer = document.getElementById('ui-container');
+            let isDragging = false;
+            let currentX, currentY, initialX, initialY, xOffset = 0, yOffset = 0;
+
+            // Carica la posizione salvata se esiste
+            const savedPos = localStorage.getItem('darkfall_ui_pos');
+            if (savedPos) {
+                const pos = JSON.parse(savedPos);
+                uiContainer.style.left = pos.x;
+                uiContainer.style.top = pos.y;
+                xOffset = parseInt(pos.x, 10);
+                yOffset = parseInt(pos.y, 10);
+                uiContainer.style.transform = 'none'; // Rimuove il transform iniziale se si carica una posizione
+            } else {
+                // Se non c'è una posizione salvata, usa quella di default e calcola l'offset
+                const rect = uiContainer.getBoundingClientRect();
+                xOffset = rect.left;
+                yOffset = rect.top;
+            }
+
+            function dragStart(e) {
+                if (document.pointerLockElement === document.body) return; // Non dragga se in gioco
+                e.preventDefault();
+                isDragging = true;
+                if (e.type === "touchstart") {
+                    initialX = e.touches[0].clientX - xOffset;
+                    initialY = e.touches[0].clientY - yOffset;
+                } else {
+                    initialX = e.clientX - xOffset;
+                    initialY = e.clientY - yOffset;
+                }
+                uiContainer.style.transition = 'none'; // Rimuovi transizioni durante il drag
+            }
+
+            function dragEnd(e) {
+                if (!isDragging) return;
+                isDragging = false;
+                uiContainer.style.transition = 'all 0.1s ease-out';
+                // Salva la nuova posizione
+                localStorage.setItem('darkfall_ui_pos', JSON.stringify({
+                    x: uiContainer.style.left,
+                    y: uiContainer.style.top
+                }));
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                let clientX, clientY;
+                if (e.type === "touchmove") {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+
+                currentX = clientX - initialX;
+                currentY = clientY - initialY;
+
+                xOffset = currentX;
+                yOffset = currentY;
+
+                uiContainer.style.left = `${currentX}px`;
+                uiContainer.style.top = `${currentY}px`;
+                uiContainer.style.bottom = 'auto'; // Annulla la proprietà bottom in favore di top
+            }
+
+            uiContainer.addEventListener("mousedown", dragStart);
+            uiContainer.addEventListener("touchstart", dragStart);
+
+            document.addEventListener("mouseup", dragEnd);
+            document.addEventListener("touchend", dragEnd);
+
+            document.addEventListener("mousemove", drag);
+            document.addEventListener("touchmove", drag);
+        }
+        // --- FINE GESTIONE UI DRAGGABILE ---
 
 
         function checkLogin() {
@@ -534,6 +628,15 @@
                 gain.gain.setValueAtTime(vol * 0.5, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
                 osc.start(now); osc.stop(now + 0.08);
             }
+            else if (type === 'hit_tick') { // Nuovo suono "tic" per i colpi
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.linearRampToValueAtTime(800, now + 0.05);
+                gain.gain.setValueAtTime(vol * 0.8, now);
+                gain.gain.linearRampToValueAtTime(0.0, now + 0.05);
+                osc.start(now);
+                osc.stop(now + 0.05);
+            }
         }
 
         function init() {
@@ -544,7 +647,7 @@
             seed = WORLD_SEED; setupWorld(); setupControls(); setupUIEvents(); loadSensitivity();
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement); window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-            checkLogin(); toggleWeapon(true); updateActionBarUI(); initKeybindUI(); animate();
+            checkLogin(); toggleWeapon(true); updateActionBarUI(); initKeybindUI(); setupDraggableUI(); animate(); // Inizializza il drag
         }
 
         function createHelmet(parent) {
@@ -1031,7 +1134,12 @@
 
         function startCasting(spellId, type, key) {
             if (castingState.active) return;
-            let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0;
+            let castTime = 0.5; 
+            
+            // Applica il cast time di 0.2s al Dardo (Spell 1)
+            if (spellId === 1) castTime = SETTINGS.missileCastTime;
+            // Se Spell 4 (Spuntoni) ha un cast time di 0, esegui subito
+            else if (spellId === 4) castTime = 0.0;
             
             if (type === 'bow_shot') {
                 castTime = SETTINGS.bowCastTime;
@@ -1069,12 +1177,23 @@
         
         function performAttack() {
             if (playerStats.isDead) return;
-            if (weaponMode === 'ranged') { startCasting(currentSpell, 'attack', 'Mouse'); } 
+            if (weaponMode === 'ranged') { 
+                // Spell 1 (Dardo) ha cast time di 0.2s, le altre (2, 3) hanno 0.5s se non specificato (non serve qui)
+                startCasting(currentSpell, 'attack', 'Mouse'); 
+            } 
             else if (weaponMode === 'bow') { startCasting(null, 'bow_shot', 'Mouse'); }
             else { 
                 if(isBlocking) return; 
                 if (performance.now() - lastAttackTime < SETTINGS.meleeRate) return; 
+                
+                // Controllo stamina per attacco base spada
+                if (playerStats.stamina < SETTINGS.meleeStaminaCost) {
+                    addToLog("Stamina insufficiente per l'attacco!", "#555");
+                    return;
+                }
+
                 lastAttackTime = performance.now(); 
+                playerStats.stamina -= SETTINGS.meleeStaminaCost; // Consuma stamina per l'attacco
                 swingSword(); 
             }
         }
@@ -1094,11 +1213,13 @@
             let cost = (id===1)?SETTINGS.missileCost:(id===2)?SETTINGS.pushCost:(id===3)?SETTINGS.fireballCost:SETTINGS.beamCost;
             if (playerStats.mana < cost) { addToLog("Mana insufficiente!", "#555"); return; }
             if (id === 4 && (now - lastSpikesTime < SETTINGS.spikesCooldown)) { addToLog("Spuntoni in ricarica...", "#aaa"); return; }
+            
             playerStats.mana -= cost; lastAttackTime = now; isAttacking = true; attackTimer = 0;
             
             let camDir = new THREE.Vector3(); camera.getWorldDirection(camDir); let spawnPos = getStaffTip();
             if (id === 4) { lastSpikesTime = now; fireHitscan(); } else { spawnProjectile(id); if (socket) socket.emit('playerAttack', { type: id, origin: spawnPos, direction: camDir }); }
             if(id === 1) playSound('shoot_bolt'); if(id === 3) playSound('shoot_fire'); if(id === 2) playSound('shoot_bolt');
+            updateUI();
         }
         function performConversion(type) {
             if (playerStats.isDead) return;
@@ -1178,6 +1299,9 @@
                     if(e.mesh.userData.isBlocking) {
                         dmg *= (1.0 - SETTINGS.blockMitigation); 
                         createFloatingText(e.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
+                    } else {
+                        // HIT SOUND
+                        playSound('hit_tick');
                     }
                     if (socket) socket.emit('playerHit', { damage: dmg, targetId: Object.keys(otherPlayers).find(key => otherPlayers[key] === e) });
                 }
@@ -1217,6 +1341,8 @@
                             createFloatingText(enemyFound.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                         } else {
                             createFloatingText(enemyFound.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
+                            // HIT SOUND
+                            playSound('hit_tick');
                         }
                         socket.emit('playerHit', { damage: dmg, targetId: hitId }); 
                         socket.emit('playerAttack', { type: 'spikes', origin: new THREE.Vector3(), direction: new THREE.Vector3(), targetId: hitId });
@@ -1338,6 +1464,8 @@
                              createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                         } else {
                              createFloatingText(hitTarget.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(mitigatedDmg)}`, "#ff3333");
+                             // HIT SOUND
+                             playSound('hit_tick');
                         }
 
                         if (socket) {
@@ -1434,6 +1562,8 @@
                         createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                     } else {
                         createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
+                        // HIT SOUND
+                        playSound('hit_tick');
                     }
                     if (pushBack) {
                          const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
@@ -1465,6 +1595,8 @@
                         createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                     } else {
                         createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
+                        // HIT SOUND
+                        playSound('hit_tick');
                     }
                     if (socket) {
                         const pushVec = new THREE.Vector3().subVectors(p.mesh.position, origin).normalize().multiplyScalar(SETTINGS.meleeKnockbackForce);
@@ -1476,7 +1608,8 @@
         }
         
         function startBlocking() {
-            if (weaponMode !== 'melee' || isBlocking || playerStats.stamina < 5) return;
+            // Controlla sempre se in modalità melee e se c'è stamina sufficiente per iniziare
+            if (weaponMode !== 'melee' || isBlocking || playerStats.stamina < 0.1) return;
             isBlocking = true;
             document.getElementById('block-text').style.display = 'block';
             if (socket) socket.emit('playerBlock', true);
@@ -1522,7 +1655,10 @@
                 playerStats.stamina -= SETTINGS.sprintStaminaCostPerSec * delta; isRegenStaminaBlocked = true; 
             }
             if (isBlocking) {
-                playerStats.stamina -= SETTINGS.blockStaminaCost * delta * 10; if (playerStats.stamina <= 0) stopBlocking(); isRegenStaminaBlocked = true; 
+                // Costo stamina parata per secondo
+                playerStats.stamina -= SETTINGS.blockStaminaCostPerSec * delta; 
+                if (playerStats.stamina <= 0) stopBlocking(); 
+                isRegenStaminaBlocked = true; 
             } 
             if (!isRegenStaminaBlocked) {
                 if (playerStats.stamina < playerStats.maxStamina) playerStats.stamina += SETTINGS.staminaRegen * delta;
@@ -1597,7 +1733,18 @@
             }
         }
         function setupControls() {
-            document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement !== document.body) { if(!playerStats.isDead && document.getElementById('bindings-modal').style.display === 'none' && document.getElementById('login-modal').style.display === 'none') document.getElementById('instructions-modal').style.display = 'block'; } else { document.getElementById('instructions-modal').style.display = 'none'; document.getElementById('bindings-modal').style.display = 'none'; } });
+            document.addEventListener('pointerlockchange', () => { 
+                if (document.pointerLockElement !== document.body) { 
+                    if(!playerStats.isDead && document.getElementById('bindings-modal').style.display === 'none' && document.getElementById('login-modal').style.display === 'none') {
+                        document.getElementById('instructions-modal').style.display = 'block';
+                        document.getElementById('ui-container').style.pointerEvents = 'auto'; // Abilita interazione UI fuori dal lock
+                    }
+                } else { 
+                    document.getElementById('instructions-modal').style.display = 'none'; 
+                    document.getElementById('bindings-modal').style.display = 'none'; 
+                    document.getElementById('ui-container').style.pointerEvents = 'none'; // Disabilita interazione UI in lock
+                } 
+            });
             document.addEventListener('keydown', (e) => {
                 if (keyToRebind || playerStats.isDead) return; 
                 switch(e.code) {
