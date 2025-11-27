@@ -67,6 +67,15 @@
         .key-btn.listening { background: #d32f2f; color: white; border-color: red; animation: pulse 1s infinite; }
         .close-modal { margin-top: 15px; width: 100%; background: #444; border: none; color: white; padding: 8px; cursor: pointer; }
         .close-modal:hover { background: #555; }
+        
+        /* Stili per il nuovo slider */
+        .setting-row { display: flex; flex-direction: column; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #333; }
+        .setting-row label { font-size: 14px; margin-bottom: 5px; color: #ccc; }
+        .slider-control { display: flex; align-items: center; width: 100%; gap: 10px; }
+        .slider-control input[type="range"] { flex-grow: 1; -webkit-appearance: none; appearance: none; height: 8px; background: #555; border-radius: 4px; outline: none; transition: opacity .2s; }
+        .slider-control input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; background: #ffd700; cursor: pointer; border-radius: 50%; }
+        .slider-control input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; background: #ffd700; cursor: pointer; border-radius: 50%; border: none; }
+        .slider-control #sensitivity-value { font-family: monospace; font-weight: bold; color: #ffd700; width: 30px; text-align: right; }
     </style>
 </head>
 <body>
@@ -129,7 +138,18 @@
     </div>
 
     <div id="bindings-modal" class="modal">
-        <h2>CONFIGURAZIONE TASTI</h2>
+        <h2>CONFIGURAZIONE TASTI E IMPOSTAZIONI</h2>
+        
+        <!-- NUOVO SLIDER SENSIBILITÀ -->
+        <div class="setting-row">
+            <label for="sensitivity-slider">Sensibilità Mouse (0 = Default)</label>
+            <div class="slider-control">
+                <input type="range" id="sensitivity-slider" min="-100" max="100" value="0" step="1">
+                <span id="sensitivity-value">0</span>
+            </div>
+        </div>
+        <!-- FINE SLIDER -->
+        
         <div id="bindings-list"></div>
         <div id="save-status">Stato: Locale</div>
         <button id="close-bindings" class="close-modal">CHIUDI</button>
@@ -171,6 +191,15 @@
         let distanceSinceStep = 0;
 
         let euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        
+        // Nuova variabile per la sensibilità del mouse (default: 0.002)
+        let mouseSensitivity = 0.002;
+        const DEFAULT_MOUSE_SENSITIVITY = 0.002;
+
+        // Nuova variabile per lo stato dello slider
+        let sensitivitySetting = 0;
+        const SENSITIVITY_STORAGE_KEY = 'darkfall_mouse_sensitivity';
+
 
         const SETTINGS = { 
             speed: 400.0, 
@@ -187,6 +216,7 @@
             missileSpeed: 900.0, 
             missileDmg: 10, 
             missileCost: 5,
+            missileGravity: 100.0, // Gravità diminuita di tanto (da 800.0 a 100.0)
             
             // ONDA (Shockwave)
             pushSpeed: 700.0, 
@@ -195,6 +225,7 @@
             pushCost: 15, 
             pushRadius: 45, 
             pushVisualRadius: 20, 
+            pushGravity: 100.0, // Gravità diminuita di tanto (da 800.0 a 100.0)
             
             // Fireball (Palla di Fuoco)
             fireballSpeed: 600.0, 
@@ -202,6 +233,7 @@
             fireballDmg: 30, 
             fireballCost: 20, 
             fireballRadius: 35, 
+            fireballGravity: 700.0, // Gravità diminuita di poco (da 800.0 a 700.0)
             
             // Beam (Spuntoni)
             beamDmg: 25, 
@@ -210,10 +242,10 @@
             
             // Bow (Arco)
             bowCastTime:0.3, 
-            arrowSpeed: 100.0, 
-            arrowDmg: 25, 
+            arrowSpeed: 800.0, // Velocità aumentata, poco inferiore a missileSpeed (900.0)
+            arrowDmg: 15, // Danno impostato a 15
             arrowCost: 0, 
-            arrowGravity: 5, // GRAVITÀ FRECCIA RIDOTTA
+            arrowGravity: 5.0, // Gravità freccia mantenuta bassa
             
             fireRate: 400, meleeRate: 500, 
             meleeRange: 32, 
@@ -238,6 +270,50 @@
         const obstacleRaycaster = new THREE.Raycaster();
 
         document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // --- GESTIONE SENSIBILITÀ MOUSE ---
+        function updateMouseSensitivity(value) {
+            sensitivitySetting = value;
+            // Lo 0% (valore 0 dello slider) corrisponde a DEFAULT_MOUSE_SENSITIVITY (0.002)
+            // Se value = 100 (100% di aumento), la sensibilità raddoppia (0.004)
+            // Se value = -100 (100% di diminuzione), la sensibilità si annulla (0.000)
+            
+            // Calcolo del moltiplicatore: 1 + (value / 100)
+            // Range: 1 + (-100/100) = 0.0 (sensibilità 0) a 1 + (100/100) = 2.0 (sensibilità raddoppiata)
+            const multiplier = 1.0 + (sensitivitySetting / 100.0);
+            mouseSensitivity = DEFAULT_MOUSE_SENSITIVITY * multiplier;
+            
+            // Impedisce che la sensibilità diventi negativa (anche se lo slider è bloccato a -100)
+            mouseSensitivity = Math.max(0.0001, mouseSensitivity); 
+            
+            localStorage.setItem(SENSITIVITY_STORAGE_KEY, sensitivitySetting.toString());
+        }
+
+        function loadSensitivity() {
+            const saved = localStorage.getItem(SENSITIVITY_STORAGE_KEY);
+            if(saved !== null) {
+                sensitivitySetting = parseInt(saved, 10);
+                updateMouseSensitivity(sensitivitySetting);
+            }
+        }
+        
+        function initSensitivityUI() {
+            const slider = document.getElementById('sensitivity-slider');
+            const valueSpan = document.getElementById('sensitivity-value');
+            
+            if (slider && valueSpan) {
+                slider.value = sensitivitySetting;
+                valueSpan.innerText = sensitivitySetting;
+                
+                slider.oninput = (e) => {
+                    const value = parseInt(e.target.value, 10);
+                    valueSpan.innerText = value;
+                    updateMouseSensitivity(value);
+                };
+            }
+        }
+        // --- FINE GESTIONE SENSIBILITÀ MOUSE ---
+
 
         function checkLogin() {
             const savedName = localStorage.getItem('darkfall_username');
@@ -377,7 +453,36 @@
         const KEY_NAMES_MAP = { MOVE_FORWARD: "Avanti", MOVE_LEFT: "Sinistra", MOVE_BACKWARD: "Indietro", MOVE_RIGHT: "Destra", JUMP: "Salto", SPRINT: "Scatto", WEAPON_SWITCH: "Cambia/Melee", BOW_EQUIP: "Arco", SPELL_1: "Dardo", SPELL_2: "Onda", SPELL_3: "Fuoco", SPELL_4: "Spuntoni", HEAL: "Cura", CONVERT_1: "Stam->HP", CONVERT_2: "HP->Mana", CONVERT_3: "Mana->Stam" };
         let keyToRebind = null;
 
-        function initKeybindUI() { const list = document.getElementById('bindings-list'); if(!list) return; list.innerHTML = ''; for (const [action, code] of Object.entries(KEYBINDS)) { const row = document.createElement('div'); row.className = 'key-row'; const label = document.createElement('span'); label.innerText = KEY_NAMES_MAP[action] || action; const btn = document.createElement('button'); btn.className = 'key-btn'; btn.innerText = code.replace('Key', '').replace('Digit', ''); btn.onclick = () => startRebinding(action, btn); row.appendChild(label); row.appendChild(btn); list.appendChild(row); } updateActionLabels(); }
+        function initKeybindUI() { 
+            const list = document.getElementById('bindings-list'); 
+            if(!list) return; 
+            
+            // Remove old keybinding list for clean rebuild
+            let oldList = document.getElementById('key-bindings-list-container');
+            if (oldList) oldList.remove();
+
+            // Create container for keybinds to separate from settings
+            const keybindsContainer = document.createElement('div');
+            keybindsContainer.id = 'key-bindings-list-container';
+            list.appendChild(keybindsContainer);
+            
+            for (const [action, code] of Object.entries(KEYBINDS)) { 
+                const row = document.createElement('div'); 
+                row.className = 'key-row'; 
+                const label = document.createElement('span'); 
+                label.innerText = KEY_NAMES_MAP[action] || action; 
+                const btn = document.createElement('button'); 
+                btn.className = 'key-btn'; 
+                btn.innerText = code.replace('Key', '').replace('Digit', ''); 
+                btn.onclick = () => startRebinding(action, btn); 
+                row.appendChild(label); 
+                row.appendChild(btn); 
+                keybindsContainer.appendChild(row); 
+            } 
+            updateActionLabels(); 
+            initSensitivityUI(); // Initialize the sensitivity slider after keybinds
+        }
+
         function startRebinding(action, btnElement) { if(keyToRebind) return; keyToRebind = action; btnElement.classList.add('listening'); btnElement.innerText = 'PREMI...'; const handler = (e) => { e.preventDefault(); e.stopPropagation(); KEYBINDS[action] = e.code; saveKeybinds(KEYBINDS); btnElement.innerText = e.code.replace('Key', '').replace('Digit', ''); btnElement.classList.remove('listening'); keyToRebind = null; document.removeEventListener('keydown', handler); updateActionLabels(); }; document.addEventListener('keydown', handler, { once: true }); }
         function updateActionLabels() { const set = (id, action) => { const el = document.getElementById(id); if(el) el.innerText = KEYBINDS[action].replace('Key', '').replace('Digit', '').replace('ShiftLeft', 'SHFT').replace('Space', 'SPC'); }; set('lbl-switch', 'WEAPON_SWITCH'); set('lbl-bow', 'BOW_EQUIP'); set('lbl-spell1', 'SPELL_1'); set('lbl-spell2', 'SPELL_2'); set('lbl-spell3', 'SPELL_3'); set('lbl-spell4', 'SPELL_4'); set('lbl-heal', 'HEAL'); set('lbl-conv1', 'CONVERT_1'); set('lbl-conv2', 'CONVERT_2'); set('lbl-conv3', 'CONVERT_3'); }
 
@@ -436,7 +541,7 @@
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 1000);
             createPlayer(); createSword(); createStaff(); createShield(); createBow();
             const light = new THREE.HemisphereLight(0x777799, 0x111122, 1.0); scene.add(light); const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5); dirLight.position.set(100, 200, 50); dirLight.castShadow = true; scene.add(dirLight);
-            seed = WORLD_SEED; setupWorld(); setupControls(); setupUIEvents();
+            seed = WORLD_SEED; setupWorld(); setupControls(); setupUIEvents(); loadSensitivity();
             renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement); window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
             checkLogin(); toggleWeapon(true); updateActionBarUI(); initKeybindUI(); animate();
@@ -1280,7 +1385,12 @@
                 } else { 
                     p.position.add(move); p.userData.life -= delta; 
                     
-                    let gravity = (p.userData.type === 5) ? SETTINGS.arrowGravity : SETTINGS.gravity;
+                    let gravity = SETTINGS.gravity;
+                    if (p.userData.type === 1) gravity = SETTINGS.missileGravity;
+                    else if (p.userData.type === 2) gravity = SETTINGS.pushGravity;
+                    else if (p.userData.type === 3) gravity = SETTINGS.fireballGravity;
+                    else if (p.userData.type === 5) gravity = SETTINGS.arrowGravity;
+
                     p.userData.velocity.y -= gravity * delta;
                     
                     if (p.userData.type === 5) p.lookAt(p.position.clone().add(p.userData.velocity)); 
@@ -1526,7 +1636,7 @@
                     case KEYBINDS.SPELL_1: stopCasting('Digit1'); break; case KEYBINDS.SPELL_2: stopCasting('Digit2'); break; case KEYBINDS.SPELL_3: stopCasting('Digit3'); break; case KEYBINDS.SPELL_4: stopCasting('Digit4'); break;
                 }
             });
-            document.body.addEventListener('mousemove', (e) => { if(document.pointerLockElement===document.body && !playerStats.isDead) { euler.y-=e.movementX*0.002; euler.x-=e.movementY*0.002; euler.x=Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x)); playerMesh.rotation.y=euler.y; } });
+            document.body.addEventListener('mousemove', (e) => { if(document.pointerLockElement===document.body && !playerStats.isDead) { euler.y-=e.movementX*mouseSensitivity; euler.x-=e.movementY*mouseSensitivity; euler.x=Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x)); playerMesh.rotation.y=euler.y; } });
             
             document.addEventListener('mousedown', (e) => { 
                 if(document.pointerLockElement===document.body && !playerStats.isDead) {
