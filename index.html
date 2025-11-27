@@ -181,8 +181,9 @@
             jumpCost: 15, 
             gravity: 800.0, 
             
+            // Missile (Dardo)
             missileSpeed: 900.0, 
-            missileDmg: 5, 
+            missileDmg: 10, 
             missileCost: 5,
             
             // ONDA (Shockwave)
@@ -190,24 +191,25 @@
             pushForce: 900.0, 
             pushUpForce: 500.0, 
             pushCost: 15, 
-            pushRadius: 45, // Hitbox ingrandita a 45
-            pushVisualRadius: 20, // Animazione impatto ridotta a 20
+            pushRadius: 45, 
+            pushVisualRadius: 20, 
             
             // Fireball (Palla di Fuoco)
             fireballSpeed: 600.0, 
             fireballUpForce: 600.0, 
-            fireballDmg: 30, // MODIFICATO: Danno a 30
+            fireballDmg: 30, 
             fireballCost: 20, 
-            fireballRadius: 35, // MODIFICATO: Hitbox ingrandita a 35 (era 20)
+            fireballRadius: 35, 
             
             // Beam (Spuntoni)
-            beamDmg: 25, // CONFERMATO: Danno 25
+            beamDmg: 25, 
             beamCost: 5, 
             beamRange: 200, 
             
             fireRate: 400, meleeRate: 500, 
             meleeRange: 32, 
             meleeDmg: 15, 
+            meleeKnockbackForce: 100, // MODIFICATO: Forza di knockback ridotta
             
             manaRegen: 2.0, 
             staminaCost: 0.2, 
@@ -218,7 +220,7 @@
             whirlwindDmg: 30, whirlwindRadius: 25, whirlwindCost: 10, whirlwindCooldown: 2000, 
             spikesCooldown: 3000,
             blockStaminaCost: 0.5, 
-            blockMitigation: 0.7 // MODIFICATO: Mitigazione parata al 70%
+            blockMitigation: 0.7 
         };
         
         const instructionsModal = document.getElementById('instructions-modal');
@@ -288,10 +290,8 @@
                 socket.on('remoteDamageTaken', (data) => {
                     // Gestisce la perdita di sangue visibile a tutti i giocatori (sia melee che ranged)
                     if (data.id === myId) {
-                        // Il danno è gestito in playerHitResponse, ma l'effetto è qui per uniformità
                         spawnParticles(playerMesh.position, 0xff0000, 5, 20, 0.5, false); 
                     } else if (otherPlayers[data.id]) { 
-                        // Assicurati che l'avversario esista prima di spawnare particelle
                         if (otherPlayers[data.id].mesh.userData.isDead) return;
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 5, 20, 0.5, false); 
                     } 
@@ -346,7 +346,8 @@
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
-                        // Esplosione di sangue per me stesso (per chi muore)
+                        
+                        // Esplosione di sangue e pezzi (isGibs: true) per me stesso (per chi muore)
                         spawnParticles(playerMesh.position, 0xff0000, 50, 50, 1.0, true);
                         
                         // Rendi invisibile il mesh locale dopo l'esplosione
@@ -355,7 +356,8 @@
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
-                        // Esplosione di sangue (visibile a tutti i players)
+                        
+                        // Esplosione di sangue e pezzi (isGibs: true) (visibile a tutti i players)
                         spawnParticles(otherPlayers[data.id].mesh.position, 0xff0000, 50, 50, 1.0, true); 
                         
                         // Rimuovi l'avversario dopo l'animazione di esplosione
@@ -467,10 +469,31 @@
             
             const headGroup = createHelmet(mesh);
 
-            const legL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 6.5, 1.6), armorMat); legL.geometry.translate(0,-3.25,0); legL.position.set(-1.4,0.5,0); mesh.add(legL);
-            const legR = new THREE.Mesh(new THREE.BoxGeometry(1.6, 6.5, 1.6), armorMat); legR.geometry.translate(0,-3.25,0); legR.position.set(1.4,0.5,0); mesh.add(legR);
-            const armL = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3,6,0); mesh.add(armL);
-            const armR = new THREE.Mesh(new THREE.BoxGeometry(1.4, 6, 1.4), armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3,6,0); mesh.add(armR);
+            // Gambe composte (Cosce e Stivali)
+            const legUpperGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6);
+            const legLowerGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6);
+            
+            // Gamba Sinistra
+            const legL = new THREE.Mesh(legUpperGeo, armorMat); legL.geometry.translate(0, -3.25 / 2, 0); // Sposta il pivot in alto
+            legL.position.set(-1.4, 3.5, 0); // Posizione sotto il torso (3.5)
+            const bootL = new THREE.Mesh(legLowerGeo, armorMat); bootL.geometry.translate(0, -3.25 / 2, 0);
+            bootL.position.y = -3.25;
+            legL.add(bootL);
+            mesh.add(legL);
+
+            // Gamba Destra
+            const legR = new THREE.Mesh(legUpperGeo, armorMat); legR.geometry.translate(0, -3.25 / 2, 0); 
+            legR.position.set(1.4, 3.5, 0); 
+            const bootR = new THREE.Mesh(legLowerGeo, armorMat); bootR.geometry.translate(0, -3.25 / 2, 0);
+            bootR.position.y = -3.25;
+            legR.add(bootR);
+            mesh.add(legR);
+            
+            const armGeo = new THREE.BoxGeometry(1.4, 6, 1.4);
+            const armL = new THREE.Mesh(armGeo, armorMat); armL.geometry.translate(0,-2.5,0); armL.position.set(-3, 8.0, 0); // Alzato per le spalle
+            mesh.add(armL);
+            const armR = new THREE.Mesh(armGeo, armorMat); armR.geometry.translate(0,-2.5,0); armR.position.set(3, 8.0, 0); // Alzato per le spalle
+            mesh.add(armR);
             const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.3,22), new THREE.MeshStandardMaterial({color:0x3e2723})); staff.position.set(0, -4, 0); staff.rotation.x = -Math.PI/6; armR.add(staff);
             
             const swordGroup = new THREE.Group();
@@ -478,10 +501,10 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordGroup.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordGroup.add(hilt);
             
-            // Rotazione spada nemico (melee) in 3a persona
+            // Rotazione spada nemico (melee) in 3a persona: Corretta la rotazione
             swordGroup.position.set(0,-5,0.5); 
             swordGroup.rotation.x = -Math.PI/2; 
-            swordGroup.rotation.y = 0; 
+            swordGroup.rotation.z = Math.PI/2; // Rotazione per far puntare la punta in avanti (lungo Z)
             
             swordGroup.visible = false; armR.add(swordGroup);
 
@@ -495,7 +518,16 @@
             const label = createPlayerLabel(info.username); label.position.y = 14; label.userData.isLabel = true; mesh.add(label); mesh.userData.hpBar = label.userData.hpBar; 
             scene.add(mesh);
             otherPlayers[info.id] = { 
-                username: info.username, mesh: mesh, limbs: { armL, armR, legL, legR, head: headGroup, torso }, 
+                username: info.username, 
+                mesh: mesh, 
+                limbs: { 
+                    armL, armR, 
+                    legL: legL, 
+                    legR: legR, 
+                    bootL: bootL, // Aggiunto per animazione
+                    bootR: bootR, // Aggiunto per animazione
+                    head: headGroup, torso 
+                }, 
                 weaponMeshes: { staff: staff, sword: swordGroup, shield: shield },
                 isAttacking: false, attackTimer: 0, isWhirlwinding: false, isDead: false,
                 lastStepPos: new THREE.Vector3()
@@ -516,7 +548,7 @@
             if(playerObj && playerObj.mesh.userData.hpBar) { 
                 const scale = Math.max(0, hp / 100); 
                 playerObj.mesh.userData.hpBar.scale.x = scale; 
-                // Aggiornamento colore in base all'HP, ora più sensibile
+                // Aggiornamento colore in base all'HP
                 playerObj.mesh.userData.hpBar.material.color.setHex(scale > 0.5 ? 0x00ff00 : (scale > 0.2 ? 0xffa500 : 0xff0000)); 
             } 
         }
@@ -554,12 +586,33 @@
             playerLimbs.head = createHelmet(playerMesh);
             playerLimbs.helmet = playerLimbs.head;
 
-            const legGeo = new THREE.BoxGeometry(1.6, 6.5, 1.6);
-            playerLimbs.legL = new THREE.Mesh(legGeo, armorMat); playerLimbs.legL.geometry.translate(0,-3.25,0); playerLimbs.legL.position.set(-1.4,0.5,0); playerMesh.add(playerLimbs.legL);
-            playerLimbs.legR = new THREE.Mesh(legGeo, armorMat); playerLimbs.legR.geometry.translate(0,-3.25,0); playerLimbs.legR.position.set(1.4,0.5,0); playerMesh.add(playerLimbs.legR);
+            // Gambe composte (Cosce e Stivali)
+            const legUpperGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6); // Coscia (Upper Leg)
+            const legLowerGeo = new THREE.BoxGeometry(1.6, 3.25, 1.6); // Stivale (Lower Leg)
+            
+            // Gamba Sinistra
+            playerLimbs.legL = new THREE.Mesh(legUpperGeo, armorMat); playerLimbs.legL.geometry.translate(0, -3.25 / 2, 0); 
+            playerLimbs.legL.position.set(-1.4, 3.5, 0);
+            const bootL = new THREE.Mesh(legLowerGeo, armorMat); bootL.geometry.translate(0, -3.25 / 2, 0);
+            bootL.position.y = -3.25;
+            playerLimbs.legL.add(bootL);
+            playerMesh.add(playerLimbs.legL);
+            playerLimbs.bootL = bootL;
+
+            // Gamba Destra
+            playerLimbs.legR = new THREE.Mesh(legUpperGeo, armorMat); playerLimbs.legR.geometry.translate(0, -3.25 / 2, 0); 
+            playerLimbs.legR.position.set(1.4, 3.5, 0);
+            const bootR = new THREE.Mesh(legLowerGeo, armorMat); bootR.geometry.translate(0, -3.25 / 2, 0);
+            bootR.position.y = -3.25;
+            playerLimbs.legR.add(bootR);
+            playerMesh.add(playerLimbs.legR);
+            playerLimbs.bootR = bootR;
+            
             const armGeo = new THREE.BoxGeometry(1.4, 6, 1.4);
-            playerLimbs.armL = new THREE.Mesh(armGeo, armorMat); playerLimbs.armL.geometry.translate(0,-2.5,0); playerLimbs.armL.position.set(-3,6,0); playerLimbs.armL.visible = true; playerMesh.add(playerLimbs.armL);
-            playerLimbs.armR = new THREE.Mesh(armGeo, armorMat); playerLimbs.armR.geometry.translate(0,-2.5,0); playerLimbs.armR.position.set(3,6,0); playerLimbs.armR.visible = true; playerMesh.add(playerLimbs.armR);
+            playerLimbs.armL = new THREE.Mesh(armGeo, armorMat); playerLimbs.armL.geometry.translate(0,-2.5,0); playerLimbs.armL.position.set(-3,8.0,0); // Modifica: Alzato per le spalle
+            playerMesh.add(playerLimbs.armL);
+            playerLimbs.armR = new THREE.Mesh(armGeo, armorMat); playerLimbs.armR.geometry.translate(0,-2.5,0); playerLimbs.armR.position.set(3,8.0,0); // Modifica: Alzato per le spalle
+            playerMesh.add(playerLimbs.armR);
             playerMesh.position.y = 6; scene.add(playerMesh);
         }
         function createSword() {
@@ -568,10 +621,11 @@
             const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 0.8), new THREE.MeshStandardMaterial({color:0xf39c12})); guard.position.y=1; swordContainer.add(guard);
             const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 4), new THREE.MeshStandardMaterial({color:0x5a3a22})); hilt.position.y=-1.5; swordContainer.add(hilt);
             
-            // Rotazione spada locale (melee) in 3a persona
+            // Rotazione spada locale (melee) in 3a persona: Corretta la rotazione per puntare in avanti
             swordContainer.position.set(0,-5,0.5); 
             swordContainer.rotation.x = -Math.PI/2; 
             swordContainer.rotation.y = 0; 
+            swordContainer.rotation.z = Math.PI/2; 
             
             swordContainer.visible=false; playerLimbs.armR.add(swordContainer);
             const trailGeo = new THREE.RingGeometry(8, 12, 32, 1, 0, Math.PI);
@@ -598,7 +652,9 @@
         function spawnParticles(pos, color, count, speedBase, size, isGibs) {
             const mat = new THREE.MeshBasicMaterial({ color: color });
             for(let i=0; i<count; i++) {
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), mat);
+                // Se isGibs è true, usa particelle più grandi per simulare pezzi di corpo
+                const particleSize = isGibs ? (size * (0.5 + random() * 0.5)) : size;
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(particleSize,particleSize,particleSize), mat);
                 mesh.position.copy(pos); mesh.position.add(new THREE.Vector3(random()-0.5, random()-0.5, random()-0.5).multiplyScalar(2));
                 scene.add(mesh);
                 // Life 1.0
@@ -710,14 +766,23 @@
                 playerMesh.position.y = 6; 
                 return;
             }
+            
+            // Posizione neutra per le braccia in melee, alzata per le spalle
+            const neutralArmY = 8.0; 
 
             if (weaponMode === 'ranged') {
+                playerLimbs.armR.position.y = 6.0; // Piu bassa in ranged
+                playerLimbs.armL.position.y = 6.0;
                 playerLimbs.armR.rotation.x = -Math.PI / 2 + Math.sin(time) * 0.05 - (isAttacking ? Math.sin(attackTimer * 2) * 0.5 : 0); 
                 playerLimbs.armR.rotation.z = 0;
                 if(staffContainer.userData.gem) staffContainer.userData.gem.scale.setScalar(isAttacking ? 1.5 : 1.0);
                 playerLimbs.armL.rotation.x = -0.5 + Math.cos(time) * 0.1;
-                playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
+                playerLimbs.legL.rotation.x = isMoving ? Math.sin(time*3)*0.8 : 0; 
+                playerLimbs.legR.rotation.x = isMoving ? -Math.sin(time*3)*0.8 : 0;
             } else {
+                playerLimbs.armR.position.y = neutralArmY; // Più alta in melee
+                playerLimbs.armL.position.y = neutralArmY;
+                
                 if (!canJump && !playerStats.isFalling) { 
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
@@ -725,19 +790,31 @@
                     const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
                     
+                    // Movimento gambe: rotazione della coscia
                     playerLimbs.legL.rotation.x = angle * legAmp; 
                     playerLimbs.legR.rotation.x = -angle * legAmp; 
                     
+                    // Contro-rotazione dello stivale per tenere il piede a terra
+                    if(playerLimbs.bootL) playerLimbs.bootL.rotation.x = -playerLimbs.legL.rotation.x * 0.6;
+                    if(playerLimbs.bootR) playerLimbs.bootR.rotation.x = -playerLimbs.legR.rotation.x * 0.6;
+                    
                     if (!isAttacking && !isWhirlwinding && !isBlocking) { 
                         playerLimbs.armL.rotation.x = -angle * armAmp; 
+                        
+                        // Rotazione Braccio Melee in Movimento: Lungo il corpo (-0.1) invece di in avanti
                         playerLimbs.armR.rotation.x = angle * armAmp; 
                     }
                     playerLimbs.torso.rotation.x = isSprintingActive ? 0.3 : 0.1; 
                 } else {
                     playerLimbs.legL.rotation.x = 0; playerLimbs.legR.rotation.x = 0; 
+                    if(playerLimbs.bootL) playerLimbs.bootL.rotation.x = 0;
+                    if(playerLimbs.bootR) playerLimbs.bootR.rotation.x = 0;
+                    
                     if(!isAttacking && !isWhirlwinding && !isBlocking) { 
                         playerLimbs.armL.rotation.x = Math.sin(time)*0.05; 
-                        playerLimbs.armR.rotation.x = Math.cos(time)*0.05; 
+                        
+                        // Rotazione Braccio Melee Idle: Lungo il corpo (-0.1) invece di in avanti
+                        playerLimbs.armR.rotation.x = -0.1;
                     }
                     playerLimbs.torso.rotation.x = 0;
                 }
@@ -755,9 +832,13 @@
                 const mesh = p.mesh;
                 
                 if (p.isDead) { 
-                    // Se il giocatore è morto, il mesh è in attesa di essere rimosso dal setTimeout in playerDied
                     return; 
                 }
+                
+                // Aggiorna altezza braccia nemico in base al modo
+                const enemyNeutralArmY = p.mesh.userData.weaponMode === 'melee' ? neutralArmY : 6.0;
+                p.limbs.armR.position.y = enemyNeutralArmY;
+                p.limbs.armL.position.y = enemyNeutralArmY;
                 
                 const distMoved = mesh.position.distanceTo(p.lastStepPos || mesh.position);
                 if (distMoved > 4.0) { 
@@ -800,9 +881,17 @@
                         const speed = state === 'run' ? 8 : 4;
                         const angle = Math.sin(time * speed);
                         limbs.legL.rotation.x = angle; limbs.legR.rotation.x = -angle;
+                        
+                        // Rotazione coscia e stivale del nemico
+                        if(limbs.bootL) limbs.bootL.rotation.x = -limbs.legL.rotation.x * 0.6;
+                        if(limbs.bootR) limbs.bootR.rotation.x = -limbs.legR.rotation.x * 0.6;
+                        
                         limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
                     } else {
                         limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
+                        if(limbs.bootL) limbs.bootL.rotation.x = 0;
+                        if(limbs.bootR) limbs.bootR.rotation.x = 0;
+                        
                         limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
                     }
                 }
@@ -816,11 +905,17 @@
             const isRanged = weaponMode === 'ranged';
             swordContainer.visible = !isRanged; staffContainer.visible = isRanged;
             
-            if(playerLimbs.helmet) playerLimbs.helmet.visible = !isRanged;
-            if(playerLimbs.torso) playerLimbs.torso.visible = !isRanged;
-            if(playerLimbs.legL) playerLimbs.legL.visible = !isRanged;
-            if(playerLimbs.legR) playerLimbs.legR.visible = !isRanged;
-            playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = !isRanged; });
+            // Aggiorna la visibilità del player mesh e delle parti
+            const isMelee = !isRanged;
+            playerMesh.visible = isMelee;
+            // Se è in terza persona, il player Mesh deve essere visibile, altrimenti no
+            if (isRanged) playerMesh.visible = true; // Prima persona in ranged
+            
+            if(playerLimbs.helmet) playerLimbs.helmet.visible = isMelee;
+            if(playerLimbs.torso) playerLimbs.torso.visible = isMelee;
+            if(playerLimbs.legL) playerLimbs.legL.visible = isMelee;
+            if(playerLimbs.legR) playerLimbs.legR.visible = isMelee;
+            playerMesh.children.forEach(c => { if(c.userData.isTorsoPart) c.visible = isMelee; });
             
             playerLimbs.armL.visible = true;
             playerLimbs.armR.visible = true;
@@ -995,7 +1090,7 @@
                     spawnStoneSpikes(enemyFound, true); 
                     const hitId = Object.keys(otherPlayers).find(key => otherPlayers[key].mesh === enemyFound);
                     if(hitId && socket) {
-                        let dmg = SETTINGS.beamDmg; // 25 HP
+                        let dmg = SETTINGS.beamDmg; 
                         // Controllo Parata (la parata deve funzionare anche con gli spuntoni)
                         if(otherPlayers[hitId].mesh.userData.isBlocking) {
                             dmg *= (1.0 - SETTINGS.blockMitigation); 
@@ -1172,7 +1267,7 @@
                 if (distToEnemy < SETTINGS.pushRadius) {
                     const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
                     let finalDmg = 10; 
-                    if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation); // Parata funziona
+                    if(op.mesh.userData.isBlocking) finalDmg *= (1.0 - SETTINGS.blockMitigation); 
                     const dir = new THREE.Vector3().subVectors(op.mesh.position, origin).normalize();
                     const forceVec = dir.multiplyScalar(SETTINGS.pushForce);
                     forceVec.y = SETTINGS.pushUpForce; 
@@ -1188,7 +1283,7 @@
                     
                     let finalDmg = damage;
                     if(op.mesh.userData.isBlocking) {
-                        finalDmg *= (1.0 - SETTINGS.blockMitigation); // Parata funziona
+                        finalDmg *= (1.0 - SETTINGS.blockMitigation); 
                         createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), "BLOCK", "#aaa");
                     } else {
                         createFloatingText(op.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(finalDmg)}`, "#ff3333");
@@ -1226,7 +1321,9 @@
                         createFloatingText(p.mesh.position.clone().add(new THREE.Vector3(0,10,0)), `-${Math.round(dmg)}`, "#ff3333");
                     }
                     if (socket) {
-                         socket.emit('playerPushed', { targetId: id, pushOrigin: origin, damage: dmg });
+                        // Spinta ridotta per il melee
+                        const pushVec = new THREE.Vector3().subVectors(p.mesh.position, origin).normalize().multiplyScalar(SETTINGS.meleeKnockbackForce);
+                         socket.emit('playerPushed', { targetId: id, forceVec: pushVec, damage: dmg });
                     }
                     addToLog(`Colpito ${p.username} con Spada! -${Math.round(dmg)}`, "dmg-dealt");
                 }
@@ -1253,18 +1350,29 @@
             }
             if(isAttacking) { attackTimer += delta * 15; if(attackTimer > Math.PI) isAttacking = false; }
             if(weaponMode==='melee') {
-                let targetRotZ = -Math.PI/2; let targetRotY = 0; let armRotX = 0;
-                if (isAttacking) { const progress = attackTimer / Math.PI; const sweep = Math.cos(progress * Math.PI); armRotX = -Math.PI/4; targetRotZ = -Math.PI/2; targetRotY = sweep * 1.5; } 
-                else { 
-                    // Animazione a riposo e rotazione per far puntare la punta in avanti
-                    const time = performance.now() * 0.002; 
-                    targetRotZ = -Math.PI/2 - 0.2 + Math.sin(time)*0.05; 
-                    targetRotY = 0; 
+                let targetRotZ = 0; 
+                let targetRotY = 0; 
+                let armRotX = 0; 
+                
+                if (isAttacking) { 
+                    const progress = attackTimer / Math.PI; 
+                    const sweep = Math.cos(progress * Math.PI); 
+                    armRotX = -Math.PI/4; 
+                    targetRotZ = Math.PI/2; 
+                    targetRotY = sweep * 1.5; 
+                    
+                    // Durante l'attacco, la spada ruota
+                    swordContainer.rotation.z = targetRotZ; 
+                    swordContainer.rotation.y = targetRotY + Math.PI; 
+                    swordContainer.rotation.x = Math.PI/2; 
+                    playerLimbs.armR.rotation.x = armRotX;
+                } else { 
+                    // IDLE MELEE: Braccio giù, spada punta avanti
+                    // Il braccio è a rotation.x = -0.1 (quasi giù)
+                    // Per far puntare la spada in avanti (-Z del mondo), dobbiamo ruotare il container
+                    // Se braccio è giù (-Y locale del braccio punta giù), la spada deve essere ruotata di 90 gradi su X locale
+                    swordContainer.rotation.set(-Math.PI/2, Math.PI, 0); 
                 }
-                swordContainer.rotation.z = targetRotZ; 
-                swordContainer.rotation.y = targetRotY + Math.PI; 
-                swordContainer.rotation.x = Math.PI/2; 
-                if(isAttacking) playerLimbs.armR.rotation.x = armRotX;
             }
         }
 
@@ -1350,9 +1458,23 @@
             }
         }
         function updateCamera() {
+            // Posizione della testa
             const headPos = playerMesh.position.clone().add(new THREE.Vector3(0,8.5,0));
-            if (weaponMode === 'ranged') { camera.position.copy(headPos).addScaledVector(new THREE.Vector3(0,0,-1).applyEuler(euler), 0.5); camera.quaternion.setFromEuler(euler); playerMesh.visible = true; } 
-            else { const offset = new THREE.Vector3(0, 5, 25).applyEuler(new THREE.Euler(euler.x, euler.y, 0, 'YXZ')); camera.position.copy(headPos).add(offset); camera.lookAt(headPos); }
+            
+            if (weaponMode === 'ranged') { 
+                // Prima persona
+                camera.position.copy(headPos).addScaledVector(new THREE.Vector3(0,0,-1).applyEuler(euler), 0.5); 
+                camera.quaternion.setFromEuler(euler); 
+                playerMesh.visible = true; 
+            } else { 
+                // Terza persona: Cam ALZATA (offset.y = 16)
+                const offset = new THREE.Vector3(0, 16, 25).applyEuler(new THREE.Euler(euler.x, euler.y, 0, 'YXZ')); 
+                camera.position.copy(headPos).add(offset); 
+                
+                // Punto di mira ALZATO (y = 12) per staccare il mirino dalla testa
+                const lookAtPoint = playerMesh.position.clone().add(new THREE.Vector3(0, 12, 0)); 
+                camera.lookAt(lookAtPoint); 
+            }
         }
         function addToLog(msg, typeClass) { const log = document.getElementById('log'); const entry = document.createElement('div'); entry.className = 'log-entry ' + (typeClass || ''); entry.innerText = msg; log.prepend(entry); if(log.children.length > 8) log.lastChild.remove(); }
         function setupUIEvents() {
