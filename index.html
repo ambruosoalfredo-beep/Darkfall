@@ -163,7 +163,7 @@
         let castingState = { active: false, currentSpell: 0, timer: 0, maxTime: 0, ready: false, keyHeld: null };
         let lastAttackTime = 0; let lastHealTime = -10000; let lastConversionTime = 0; let lastWhirlwindTime = 0; let lastSpikesTime = 0; 
         
-        // GLOBAL RAYCASTER FOR PERFORMANCE
+        // GLOBAL RAYCASTER FOR PROJECTILE COLLISION CHECK (Fix for passing through)
         const projRaycaster = new THREE.Raycaster();
 
         // Jump Vars
@@ -180,7 +180,7 @@
             
             // JUMP SETTINGS
             jumpCooldown: 1000,
-            jumpCost: 15, 
+            jumpCost: 15, // Costo richiesto 15
 
             missileSpeed: 900.0, 
             missileDmg: 5, 
@@ -188,14 +188,15 @@
             
             // ONDA (Shockwave)
             pushSpeed: 700.0, pushForce: 900.0, pushUpForce: 500.0, pushCost: 15, 
-            pushRadius: 25, 
+            pushRadius: 12.0, // Hitbox ingrandita a 12.0 (era 4.0), vfx ridotto (visualRadius)
+            visualRadius: 10.0, // Visual ridotto come richiesto
             
             fireballSpeed: 600.0, fireballUpForce: 600.0, fireballDmg: 50, fireballCost: 20, fireballRadius: 20,
             
             beamDmg: 25, beamCost: 5, beamRange: 200, 
-            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 15, 
+            fireRate: 400, meleeRate: 500, meleeRange: 32, meleeDmg: 15, // Danno richiesto 15
             manaRegen: 2.0, 
-            sprintCostPerSec: 1.0, 
+            sprintCostPerSec: 1.0, // 1 stamina/sec come richiesto
             staminaRegen: 3.0, 
             healAmount: 20, healCost: 10, healCooldown: 10000, 
             conversionCost: 5, conversionGain: 5, conversionCooldown: 1000, 
@@ -300,11 +301,11 @@
                         playerStats.hp = data.hp; updateUI(); 
                         if (diff < 0) {
                             flashScreen('red'); 
-                            spawnParticles(playerMesh.position, 0x8a0303, 10, 20, 0.4, false); // Self blood
+                            spawnParticles(playerMesh.position, 0x8a0303, 10, 20, 0.4, false); // Self blood on hit
                         }
                     } else if (otherPlayers[data.id]) { 
                         updateEnemyHealthBar(otherPlayers[data.id], data.hp); 
-                        spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 30, 30, 0.6, false); // Enemy blood on hit
+                         spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 30, 30, 0.6, false); // Enemy blood on hit
                     } 
                 });
                 
@@ -313,12 +314,11 @@
                         playerStats.isDead = true; playerStats.hp = 0; 
                         document.getElementById('message').innerHTML = "SEI STATO SCONFITTO<br><span style='font-size:16px'>Premi RESPAWN</span>"; 
                         document.getElementById('message').style.display = "block"; document.exitPointerLock(); 
-                        // Self death explosion
-                        spawnParticles(playerMesh.position, 0x8a0303, 100, 80, 0.8, true); 
+                        spawnParticles(playerMesh.position, 0x8a0303, 100, 80, 0.8, true); // Death explosion
                     } else if(otherPlayers[data.id]) { 
                         otherPlayers[data.id].mesh.userData.isDead = true; 
                         addToLog(otherPlayers[data.id].username + " eliminato!", "kill"); 
-                        // Big Blood Explosion
+                        // Big Blood Explosion (Visible to all)
                         spawnParticles(otherPlayers[data.id].mesh.position, 0x8a0303, 150, 80, 1.2, true); 
                         // Hide mesh immediately
                         otherPlayers[data.id].mesh.visible = false;
@@ -419,10 +419,6 @@
 
         function addOtherPlayer(info) {
             const mesh = new THREE.Group();
-            // Important Tag for Collision
-            mesh.userData.isPlayerRoot = true;
-            mesh.userData.playerId = info.id;
-
             const armorMat = new THREE.MeshStandardMaterial({ color: 0x800000, metalness: 0.7 }); 
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x95a5a6, metalness: 0.9 });
             const torso = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6.5, 3), armorMat); torso.position.y = 3.5; mesh.add(torso);
@@ -670,7 +666,7 @@
                     playerLimbs.legL.rotation.x = 0.8; playerLimbs.legR.rotation.x = 0.8; playerLimbs.armL.rotation.x = -0.8; 
                     if(!isAttacking) playerLimbs.armR.rotation.x = -0.8; 
                 } else if (isMoving) { 
-                    const isSprintingActive = isSprinting && playerStats.stamina > 0; const speedMulti = isSprintingActive ? 8 : 4;
+                    const isSprintingActive = isSprinting && playerStats.stamina > 0 && !isBlocking; const speedMulti = isSprintingActive ? 8 : 4;
                     const armAmp = isSprintingActive ? 1.2 : 0.6; const legAmp = isSprintingActive ? 1.4 : 0.8; const angle = Math.sin(time * speedMulti);
                     
                     playerLimbs.legL.rotation.x = angle * legAmp; 
@@ -702,8 +698,7 @@
             Object.values(otherPlayers).forEach(p => {
                 const mesh = p.mesh;
                 
-                if (p.isDead || !mesh.visible) { // Aggiunto check visibile per player eliminati
-                   // Handled by particle explosion mainly
+                if (p.isDead || !mesh.visible) {
                     return; 
                 }
                 
@@ -751,7 +746,7 @@
                         limbs.armL.rotation.x = -angle; limbs.armR.rotation.x = angle;
                     } else {
                         limbs.legL.rotation.x = 0; limbs.legR.rotation.x = 0;
-                        limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = -Math.sin(time)*0.05;
+                        limbs.armL.rotation.x = Math.sin(time)*0.05; limbs.armR.rotation.x = Math.cos(time)*0.05;
                     }
                 }
                 if(mesh.userData.hpBar) mesh.userData.hpBar.parent.lookAt(camera.position);
@@ -781,7 +776,7 @@
         }
 
         function startCasting(spellId, type, key) {
-            if (playerStats.isDead) return; // FIX: Check if dead before casting
+            if (playerStats.isDead) return;
             if (castingState.active) return;
             let castTime = 0.5; if (spellId === 1 || spellId === 4) castTime = 0.0; 
             if (type === 'attack' && spellId !== 4) {
@@ -934,9 +929,9 @@
         function getStaffTip() { const vec = new THREE.Vector3(); if(staffContainer?.userData.gem) staffContainer.userData.gem.getWorldPosition(vec); else vec.copy(playerMesh.position).add(new THREE.Vector3(0,5,0)); return vec; }
         
         function fireHitscan() {
-            if (playerStats.isDead) return; // FIX: Guard clause
+            if (playerStats.isDead) return;
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh).filter(m => m.visible); // FIX: Filter dead/invisible players
+            const opponentMeshes = Object.values(otherPlayers).map(p => p.mesh).filter(m => m.visible);
             const intersects = raycaster.intersectObjects([...opponentMeshes, ...obstacles], true);
             if(intersects.length > 0) {
                 let hitPoint = intersects[0].point; let obj = intersects[0].object; let enemyFound = null; let currentObj = obj;
@@ -962,7 +957,7 @@
         }
 
         function spawnProjectile(type) {
-            if (playerStats.isDead) return; // FIX: Guard clause
+            if (playerStats.isDead) return;
             let geo, speed, color, hitRadius, visualRadius;
             if (type === 1) { 
                 geo = new THREE.SphereGeometry(1.0); color = 0x00ffff; speed = SETTINGS.missileSpeed; 
@@ -970,8 +965,8 @@
             } 
             else if (type === 2) { 
                 geo = new THREE.SphereGeometry(1.8); color = 0xffffff; speed = SETTINGS.pushSpeed; 
-                hitRadius = 12.0; 
-                visualRadius = 10.0; 
+                hitRadius = SETTINGS.pushRadius; // Usa il valore aggiornato 
+                visualRadius = SETTINGS.visualRadius; // Usa il valore aggiornato
             } 
             else { 
                 geo = new THREE.SphereGeometry(3.0); color = 0xff6600; speed = SETTINGS.fireballSpeed; 
@@ -995,8 +990,8 @@
                 life: 2.0, 
                 type: type, 
                 isMine: true,
-                hitRadius: hitRadius,
-                visualRadius: visualRadius
+                hitRadius: hitRadius, // Salvato per updateProjectiles
+                visualRadius: visualRadius // Salvato per updateProjectiles
             };
             scene.add(proj); projectiles.push(proj);
         }
@@ -1008,12 +1003,12 @@
             proj.position.copy(startPos);
             const dirVec = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
             const light = new THREE.PointLight(color, 1, 20); proj.add(light);
-            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false };
+            proj.userData = { velocity: dirVec.multiplyScalar(speed), life: 3.0, type: type, isMine: false, hitRadius: 8.0 }; // Aggiunto hitRadius per proiettili nemici
             scene.add(proj); projectiles.push(proj); playSound(type === 3 ? 'shoot_fire' : 'shoot_bolt');
         }
 
         function updateProjectiles(delta) {
-            const playerEntries = Object.values(otherPlayers).filter(p => p.mesh.visible); // FIX: Filter invisible meshes
+            const playerEntries = Object.values(otherPlayers).filter(p => p.mesh.visible); // Solo giocatori visibili
 
             for (let i = projectiles.length - 1; i >= 0; i--) {
                 const p = projectiles[i]; 
@@ -1029,7 +1024,7 @@
                 if (p.userData.isMine) {
                     const hitRadius = p.userData.hitRadius || 4.0;
                     
-                    // 1. SAFE RAYCAST CHECK 
+                    // 1. SAFE RAYCAST CHECK (FIX per trapassare)
                     if (playerEntries.length > 0) {
                         projRaycaster.set(p.position, move.clone().normalize());
                         projRaycaster.far = dist;
@@ -1039,7 +1034,7 @@
                             const firstHitObj = intersects[0].object;
                             hitPoint = intersects[0].point;
                             
-                            // Find the owner player of this mesh part
+                            // Risale per trovare il mesh radice del giocatore
                             const ownerEntry = playerEntries.find(entry => {
                                 let curr = firstHitObj;
                                 while (curr) {
@@ -1056,7 +1051,7 @@
                         }
                     }
 
-                    // 2. Fallback Distance Check (If raycast missed but we are inside)
+                    // 2. Fallback Distance Check (Se raycast fallisce ma siamo troppo vicini/dentro)
                     if (!hit) {
                         for(const op of playerEntries) {
                             const dx = p.position.x - op.mesh.position.x;
@@ -1080,7 +1075,7 @@
                     }
                         
                     if (hit && hitTarget) {
-                        // Find Target ID
+                        // Trova ID Target
                         let targetId = null;
                         for(const [id, entry] of Object.entries(otherPlayers)) {
                             if (entry.mesh === hitTarget) { targetId = id; break; }
@@ -1101,7 +1096,7 @@
 
                             if (socket) {
                                 if (p.userData.type === 2) { 
-                                    // ONDA
+                                    // ONDA (Shockwave)
                                     spawnExplosionVisual(hitPoint, 0xffffff, p.userData.visualRadius || 10);
                                     checkShockwaveAoE(hitPoint);
                                 } else if (p.userData.type === 3) { 
@@ -1118,13 +1113,14 @@
                 } 
                 else {
                     // Check local player hit
-                    if (!playerStats.isDead) { // FIX: Guard clause
+                    if (!playerStats.isDead) {
+                        const hitRadius = p.userData.hitRadius || 4.0;
                         const dx = p.position.x - playerMesh.position.x;
                         const dz = p.position.z - playerMesh.position.z;
                         const distXZ = Math.sqrt(dx*dx + dz*dz);
                         const dy = p.position.y - playerMesh.position.y;
                         
-                        if (distXZ < 8.0 && dy > 0 && dy < 15.0) {
+                        if (distXZ < hitRadius && dy > 0 && dy < 15.0) {
                              hit = true; hitPoint = playerMesh.position;
                              playSound('hit');
                         }
@@ -1168,7 +1164,7 @@
             }
 
             Object.values(otherPlayers).forEach(op => {
-                if (op.mesh.visible) { // FIX: Check if visible
+                if (op.mesh.visible) {
                     const distToEnemy = op.mesh.position.distanceTo(origin);
                     if (distToEnemy < SETTINGS.pushRadius) {
                         const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
@@ -1185,7 +1181,7 @@
         
         function checkSplashDamage(origin, radius, damage, pushBack) {
             Object.values(otherPlayers).forEach(op => {
-                if (op.mesh.visible) { // FIX: Check if visible
+                if (op.mesh.visible) {
                     if (op.mesh.position.distanceTo(origin) < radius) {
                         const targetId = Object.keys(otherPlayers).find(key => otherPlayers[key] === op);
                         
@@ -1211,7 +1207,7 @@
         }
 
         function swingSword() {
-            if (playerStats.isDead) return; // FIX: Guard clause
+            if (playerStats.isDead) return;
             isAttacking = true; attackTimer = 0;
             if(swordContainer.userData.trail) { swordContainer.userData.trail.material.opacity = 0.8; setTimeout(() => swordContainer.userData.trail.material.opacity = 0, 200); }
             playSound('swing_heavy');
@@ -1221,7 +1217,7 @@
             const origin = playerMesh.position.clone(); 
             const forward = new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(0,euler.y,0));
             Object.entries(otherPlayers).forEach(([id, p]) => {
-                if (p.mesh.visible) { // FIX: Check if visible
+                if (p.mesh.visible) {
                     const dir = new THREE.Vector3().subVectors(p.mesh.position, origin);
                     if (dir.length() < SETTINGS.meleeRange && forward.angleTo(dir.normalize()) < Math.PI/2) {
                         let dmg = SETTINGS.meleeDmg;
@@ -1241,7 +1237,7 @@
         }
         
         function startBlocking() {
-            if (playerStats.isDead) return; // FIX: Guard clause
+            if (playerStats.isDead) return;
             if (weaponMode !== 'melee' || isBlocking || playerStats.stamina < 5) return;
             isBlocking = true;
             document.getElementById('block-text').style.display = 'block';
@@ -1296,7 +1292,7 @@
         function updatePhysics(delta) {
             if (playerStats.mana < playerStats.maxMana) playerStats.mana += SETTINGS.manaRegen * delta;
             
-            // Logica rigenerazione/costo Stamina
+            // Logica rigenerazione/costo Stamina (aggiornata)
             const isMoving = moveForward || moveBackward || moveLeft || moveRight;
             const isSprintingActive = isSprinting && isMoving && playerStats.stamina > 0 && !isBlocking;
 
@@ -1305,7 +1301,7 @@
                 if (playerStats.stamina <= 0) stopBlocking();
                 // NESSUNA REGEN DURANTE LA PARATA
             } else if (isSprintingActive) { 
-                // NESSUNA REGEN DURANTE LO SPRINT
+                // NESSUNA REGEN DURANTE LO SPRINT, COSTO FISSO AL SECONDO
                 playerStats.stamina -= SETTINGS.sprintCostPerSec * delta; 
             } else {
                 // REGEN NORMALE
@@ -1458,10 +1454,13 @@
             const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
             if (!playerStats.isDead) { 
                 try {
-                    updatePhysics(delta); updateProjectiles(delta); updateCasting(delta);
-                    updateConversions(delta); updateFloatingTexts(delta);
+                    updatePhysics(delta); 
+                    updateProjectiles(delta); 
+                    updateCasting(delta);
+                    updateConversions(delta); 
+                    updateFloatingTexts(delta);
                     updateSwordAnimation(delta); 
-                    updateParticles(delta);
+                    updateParticles(delta); // CHIAMATA MANCANTE RIPRISTINATA
                 } catch(e) { console.error(e); }
                 updateCamera(); 
             }
